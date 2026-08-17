@@ -14,6 +14,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job stages the checkout at chezmoi's DEFAULT source directory
+# (~/.local/share/chezmoi) rather than passing --source.
+#
+# `chezmoi init --source=<dir>` does not persist sourceDir into the config it
+# generates, so any later bare `chezmoi apply` looks in the default location and
+# dies with "no such file or directory". Worse, in the lint job a wrong sourceDir
+# made `{{ include ... }}` unresolvable, which silently rendered four scripts
+# empty and skipped linting them altogether.
+#
+# Staging at the default path fixes both, and matches how a real machine is
+# laid out.
+
 jobs:
   lint:
     name: lint (shellcheck, shfmt, zsh -n)
@@ -23,29 +35,68 @@ jobs:
 
       - name: Install tooling
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck zsh
-          curl -fsSL "https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64" \
-            -o /usr/local/bin/shfmt && sudo chmod +x /usr/local/bin/shfmt || \
-            sudo mv shfmt /usr/local/bin/shfmt 2>/dev/null || true
+          SHFMT_VER=v3.13.1
+          sudo curl -fsSL \
+            "https://github.com/mvdan/sh/releases/download/${SHFMT_VER}/shfmt_${SHFMT_VER}_linux_amd64" \
+            -o /usr/local/bin/shfmt
+          sudo chmod +x /usr/local/bin/shfmt
           sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+          # Fail loudly here rather than silently degrading a later step.
+          shellcheck --version >/dev/null
+          shfmt --version >/dev/null
+          chezmoi --version >/dev/null
+          zsh --version >/dev/null
+
+      - name: Stage repo at chezmoi's default source directory
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share"
+          cp -a "$GITHUB_WORKSPACE" "$HOME/.local/share/chezmoi"
+          chezmoi init --promptDefaults
+          # Prove sourceDir is what we think it is; everything below depends on it.
+          test "$(chezmoi source-path)" = "$HOME/.local/share/chezmoi/home"
 
       - name: shellcheck rendered chezmoi scripts
-        # The scripts are Go templates, so they must be rendered before linting.
-        # chezmoi needs a config to render, hence init --promptDefaults first.
         run: |
-          chezmoi init --promptDefaults --source="$PWD"
+          set -uo pipefail
           fail=0
-          for f in home/.chezmoiscripts/*.tmpl; do
-            out=$(chezmoi execute-template < "$f" 2>/dev/null || true)
+          linted=0
+          skipped=0
+          for f in "$HOME/.local/share/chezmoi"/home/.chezmoiscripts/*.tmpl; do
+            name=$(basename "$f")
+            # A RENDER failure must fail the job. Do NOT swallow it with `|| true`:
+            # that is exactly what previously turned an unresolvable `include`
+            # into "empty output" and skipped four scripts without linting them.
+            if ! out=$(chezmoi execute-template < "$f" 2>/tmp/render.err); then
+              echo "::error file=home/.chezmoiscripts/$name::template failed to render: $(cat /tmp/render.err)"
+              fail=1
+              continue
+            fi
             if [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
-              echo "skip (empty on this OS): $f"; continue
+              echo "skip  $name (OS-gated: renders empty on linux)"
+              skipped=$((skipped + 1))
+              continue
             fi
             printf '%s' "$out" > /tmp/r.sh
-            echo "--- $f"
-            bash -n /tmp/r.sh || fail=1
-            shellcheck -S warning /tmp/r.sh || fail=1
+            if bash -n /tmp/r.sh && shellcheck -S warning /tmp/r.sh; then
+              echo "ok    $name"
+            else
+              echo "::error file=home/.chezmoiscripts/$name::shellcheck or bash -n failed"
+              fail=1
+            fi
+            linted=$((linted + 1))
           done
+          echo "linted=$linted skipped=$skipped"
+          # Guard against a future false green. On Linux none of these scripts are
+          # gated off, so all of them must actually be linted. If this trips,
+          # something is rendering empty that should not be.
+          if [ "$linted" -lt 9 ]; then
+            echo "::error::only $linted scripts were linted (expected 9). A template is rendering empty when it should not."
+            fail=1
+          fi
           exit $fail
 
       - name: shfmt on real shell files
@@ -54,14 +105,18 @@ jobs:
       - name: zsh -n on every zsh fragment
         # shellcheck cannot parse zsh, so syntax-check with zsh itself.
         run: |
+          set -uo pipefail
           fail=0
+          n=0
           for f in home/dot_zshenv \
                    home/dot_config/zsh/dot_zshenv \
                    home/dot_config/zsh/dot_zprofile \
                    home/dot_config/zsh/dot_zshrc \
                    home/dot_config/zsh/conf.d/*.zsh; do
-            zsh -n "$f" || { echo "FAIL $f"; fail=1; }
+            if zsh -n "$f"; then n=$((n + 1)); else echo "::error file=$f::zsh -n failed"; fail=1; fi
           done
+          echo "checked $n zsh files"
+          [ "$n" -ge 15 ] || { echo "::error::expected at least 15 zsh files, found $n"; fail=1; }
           exit $fail
 
       - name: Brewfile is valid Ruby
@@ -89,7 +144,7 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Prepare bare container
-        # Minimal images have no sudo, curl or git — which is exactly the point:
+        # Minimal images have no sudo, curl or git — which is the point:
         # run_once_before_00-bootstrap-pkg-manager has to cope with that.
         if: matrix.container != ''
         run: |
@@ -102,15 +157,24 @@ jobs:
       - name: Install chezmoi
         run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
 
+      - name: Stage repo at chezmoi's default source directory
+        run: |
+          set -eu
+          mkdir -p "$HOME/.local/share"
+          cp -a "$GITHUB_WORKSPACE" "$HOME/.local/share/chezmoi"
+
       - name: init + first apply
         run: |
-          chezmoi init --promptDefaults --source="$PWD"
+          set -eu
+          chezmoi init --promptDefaults
+          test "$(chezmoi source-path)" = "$HOME/.local/share/chezmoi/home"
           chezmoi apply --verbose
 
       - name: assert the shell actually starts
         # The single highest-value assertion in this workflow. This is the class
         # of failure the old unguarded `eval "$(pyenv init --path)"` was.
         run: |
+          set -eu
           zsh -i -c 'exit'
           zsh -l -i -c 'exit'
           test "$(zsh -l -i -c 'printf %s $ZDOTDIR')" = "$HOME/.config/zsh"
@@ -119,6 +183,7 @@ jobs:
 
       - name: assert deployed layout
         run: |
+          set -eu
           test -L "$HOME/.config/nvim"                       # ONE folded symlink
           test -f "$HOME/.config/nvim/.stylua.toml"
           test -e "$HOME/.config/tmux/tmux.conf"
@@ -126,11 +191,24 @@ jobs:
           test -x "$HOME/.config/tmux/plugins/tpm/tpm"
           test -f "$HOME/.config/tmux/plugins/tmux/catppuccin.tmux"
           test -f "$HOME/.config/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+          test "$(ls "$HOME/.config/zsh/conf.d" | wc -l)" -ge 10
           grep -q '\[user\]' "$HOME/.gitconfig"
-          test -z "$(find "$HOME" -maxdepth 4 -xtype l 2>/dev/null)"
+          test -n "$(git config --global user.email)"
+
+      - name: assert no broken symlinks in $HOME
+        # Excludes the staged repo copy itself, which is not part of the deployed
+        # state and may contain paths that only resolve on the other OS.
+        run: |
+          set -eu
+          broken=$(find "$HOME" -maxdepth 4 -xtype l \
+                    -not -path "$HOME/.local/share/chezmoi/*" 2>/dev/null || true)
+          if [ -n "$broken" ]; then
+            echo "::error::broken symlinks found:"; echo "$broken"; exit 1
+          fi
 
       - name: assert OS-specific files were gated correctly
         run: |
+          set -eu
           if [ "$RUNNER_OS" = "macOS" ]; then
             test -e "$HOME/.config/ghostty/config.darwin"
             test ! -e "$HOME/.config/ghostty/config.linux"
@@ -141,6 +219,7 @@ jobs:
 
       - name: SECOND apply must be a no-op (idempotency)
         run: |
+          set -eu
           out="$(chezmoi apply --verbose 2>&1 || true)"
           printf '%s\n' "$out"
           if printf '%s' "$out" | grep -qE '^\+\+\+ b/'; then

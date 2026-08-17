@@ -41,12 +41,14 @@ lint: ## shellcheck + shfmt on rendered scripts, zsh -n on every fragment
 	@fail=0; \
 	echo "--- shellcheck (rendered templates) ---"; \
 	for f in $(SCRIPTS); do \
-	  out=$$($(CHEZMOI) execute-template < "$$f" 2>/dev/null); \
-	  [ -z "$$(printf '%s' "$$out" | tr -d '[:space:]')" ] && { printf "  skip (empty on this OS) %s\n" "$$(basename $$f)"; continue; }; \
+	  if ! out=$$($(CHEZMOI) execute-template < "$$f" 2>/tmp/_lint.err); then \
+	    printf "  FAIL %s (template did not render: %s)\n" "$$(basename $$f)" "$$(cat /tmp/_lint.err)"; \
+	    fail=1; continue; \
+	  fi; \
+	  [ -z "$$(printf '%s' "$$out" | tr -d '[:space:]')" ] && { printf "  skip %s (OS-gated: renders empty here)\n" "$$(basename $$f)"; continue; }; \
 	  printf '%s' "$$out" > /tmp/_lint.sh; \
-	  if shellcheck -S warning /tmp/_lint.sh; then printf "  ok   %s\n" "$$(basename $$f)"; \
+	  if bash -n /tmp/_lint.sh && shellcheck -S warning /tmp/_lint.sh; then printf "  ok   %s\n" "$$(basename $$f)"; \
 	  else printf "  FAIL %s\n" "$$(basename $$f)"; fail=1; fi; \
-	  shfmt -d -i 2 -ci -sr /tmp/_lint.sh >/dev/null 2>&1 || true; \
 	done; \
 	echo "--- zsh -n (shellcheck cannot parse zsh) ---"; \
 	for f in $(ZSH_FRAGS) $(REPO_ROOT)/home/dot_zshenv \
@@ -115,4 +117,4 @@ doctor: ## Check this machine's install is intact
 	@command -v tree-sitter >/dev/null 2>&1 && echo "  ok" || echo "  MISSING: brew install tree-sitter-cli"
 
 clean: ## Remove local scratch files
-	rm -f /tmp/_lint.sh
+	rm -f /tmp/_lint.sh /tmp/_lint.err
