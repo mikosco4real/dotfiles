@@ -88,7 +88,10 @@ test-shell: ## Drop into a shell in the test container to poke around
 
 doctor: ## Check this machine's install is intact
 	@echo "--- chezmoi ---"
-	@$(CHEZMOI) doctor 2>&1 | grep -vE '^ok ' || true
+	@# Drop the "ok" rows and the long list of "info: <password manager> not found"
+	@# probes; this setup deliberately uses no password manager.
+	@out=$$($(CHEZMOI) doctor 2>&1 | grep -vE '^(ok|info) ' | grep -v '^RESULT'); \
+	  [ -z "$$out" ] && echo "  no warnings" || echo "$$out"
 	@echo "--- drift ---"
 	@out=$$($(CHEZMOI) status); [ -z "$$out" ] && echo "  clean" || echo "$$out"
 	@echo "--- files that MUST still be symlinks ---"
