@@ -37,12 +37,12 @@ all use Nerd Font glyphs.
 On a machine with nothing installed, not even chezmoi:
 
 ```sh
-sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply --source-url \
-  https://github.com/mikosco4real/.dotfiles.git
+sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply mikosco4real
 ```
 
-<sub>Once this repo is renamed from `.dotfiles` to `dotfiles`, the short form works
-instead: `sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply mikosco4real`</sub>
+That is the whole thing. chezmoi installs itself, finds
+`github.com/mikosco4real/dotfiles`, clones it, prompts for the values below, and
+applies.
 
 You are prompted for six values, each with a default, so holding Enter is fine:
 
@@ -60,7 +60,7 @@ Answers are written to `~/.config/chezmoi/chezmoi.toml`, **not** to this repo.
 To look before you leap:
 
 ```sh
-git clone https://github.com/mikosco4real/.dotfiles.git ~/.local/share/chezmoi
+git clone https://github.com/mikosco4real/dotfiles.git ~/.local/share/chezmoi
 chezmoi init                     # writes the config, changes nothing else
 chezmoi diff                     # review every change first
 chezmoi apply --verbose
