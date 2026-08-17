@@ -12,6 +12,16 @@ set -euo pipefail
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+{{ if env "CI" -}}
+# CI and the Docker harness deliberately skip this. Many of these formulae have
+# no Linux bottle and would build from source, taking hours — and package
+# installation is not what those runs are testing. They test templating, the
+# symlink/real-file split, OS gating, idempotency, and that the shell starts.
+# Package installation is exercised for real on the actual machines.
+log "CI detected; skipping brew bundle"
+exit 0
+{{ end -}}
+
 for _b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
   [[ -x "$_b" ]] && eval "$("$_b" shellenv)" && break
 done

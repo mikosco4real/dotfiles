@@ -44,12 +44,17 @@ fi
 
 # Homebrew-on-Linux, used as a top-up for CLI tools whose apt versions are too
 # old (most importantly Neovim: Ubuntu 24.04 has 0.9.x, this config needs 0.12+).
-if ! command -v brew >/dev/null 2>&1 && [[ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-  log "Installing Homebrew for Linux"
-  NONINTERACTIVE=1 /bin/bash -c \
-    "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+#
+# Skipped under CI: the companion brew-bundle script skips there too, so
+# installing Homebrew would cost minutes and then go unused.
+if [[ -z "${CI:-}" ]]; then
+  if ! command -v brew > /dev/null 2>&1 && [[ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+    log "Installing Homebrew for Linux"
+    NONINTERACTIVE=1 /bin/bash -c \
+      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fi
+  [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
-[[ -x /home/linuxbrew/.linuxbrew/bin/brew ]] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 {{- end }}
 
 log "Package manager ready"

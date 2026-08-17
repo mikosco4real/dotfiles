@@ -25,6 +25,12 @@ $SUDO apt-get install -y --no-install-recommends $PKGS
 
 {{ if .gui -}}
 # ── Ghostty ───────────────────────────────────────────────────────────────────
+# Skipped under CI: add-apt-repository is slow and unreliable in bare containers,
+# and a GUI terminal is not what those runs verify.
+if [[ -n "${CI:-}" ]]; then
+  log "CI detected; skipping Ghostty install"
+  exit 0
+fi
 # Ghostty upstream officially supports only building from source on Linux. The
 # de-facto standard prebuilt for Debian/Ubuntu is mkasberg's PPA, which tracks
 # upstream releases closely (1.3.x, matching the macOS cask).

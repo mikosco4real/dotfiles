@@ -1,0 +1,57 @@
+# Install once with:  pre-commit install
+# Run over everything:  pre-commit run --all-files
+#
+# Note: the chezmoi scripts under home/.chezmoiscripts/ are Go templates and
+# cannot be linted as-is, so they are excluded here and checked properly (after
+# rendering) by `make lint` and by CI.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: '^home/dot_config/kitty/themes/'
+      - id: trailing-whitespace
+        exclude: '^home/dot_config/kitty/themes/'
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        # Only real .sh files. Templates are handled by `make lint`.
+        files: '^test/.*\.sh$'
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.10.0-2
+    hooks:
+      - id: shfmt
+        args: ["-i", "2", "-ci", "-sr", "-w"]
+        files: '^test/.*\.sh$'
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      # Belt-and-braces. Identity and secrets are supposed to live in
+      # ~/.config/chezmoi/chezmoi.toml and ~/.config/zsh/local.zsh, both outside
+      # this repo — this catches the day that slips.
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: zsh-syntax
+        name: zsh -n on zsh fragments
+        entry: zsh -n
+        language: system
+        files: '^home/(dot_zshenv|dot_config/zsh/(dot_zsh(env|rc)|dot_zprofile|conf\.d/.*\.zsh))$'
+
+      - id: chezmoi-templates-render
+        name: chezmoi templates render
+        entry: bash -c 'for f in home/.chezmoiscripts/*.tmpl home/.chezmoi.toml.tmpl home/dot_gitconfig.tmpl; do chezmoi execute-template < "$f" >/dev/null || exit 1; done'
+        language: system
+        pass_filenames: false
+        files: '\.tmpl$'

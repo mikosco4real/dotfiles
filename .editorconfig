@@ -1,0 +1,22 @@
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+indent_style = space
+indent_size = 2
+
+# Matches nvim/.stylua.toml (4 spaces, 120 columns).
+[*.lua]
+indent_size = 4
+max_line_length = 120
+
+[Makefile]
+indent_style = tab
+
+# Vendored Catppuccin theme files — leave exactly as upstream ships them.
+[home/dot_config/kitty/themes/*.conf]
+trim_trailing_whitespace = false
+insert_final_newline = false

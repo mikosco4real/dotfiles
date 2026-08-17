@@ -1,0 +1,9 @@
+# shellcheck configuration for this repo.
+
+# Follow `source`d files where the path is resolvable; don't error when it isn't
+# (chezmoi scripts source things that only exist on the target machine).
+external-sources=true
+
+# SC1091: "not following: file was not specified as input". Expected — the
+#         provisioning scripts source brew shellenv and similar at runtime.
+disable=SC1091
