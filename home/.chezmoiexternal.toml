@@ -1,0 +1,93 @@
+{{/*
+   Third-party code vendored by chezmoi. Keys are TARGET paths relative to ~.
+
+   This file replaces every "clone this by hand" step the old README documented.
+   A fresh machine gets tpm, the tmux theme and all zsh plugins from
+   `chezmoi apply` alone — no `prefix + I`, no plugin manager to bootstrap.
+
+   This file is always treated as a template, with or without a .tmpl suffix.
+
+   type choice:
+     git-repo  a real checkout. Needed when the thing IS a git tool (tpm's
+               self-update, prefix+U) or tracks a branch with no releases.
+               Not visible to `chezmoi diff`/`dump`, and `pull` can drift.
+     archive   pinned to a tag in the URL, needs no git at apply time (which
+               matters in the Docker test harness), and `exact = true` prunes
+               files that disappear between versions.
+*/}}
+
+# ─── tmux ─────────────────────────────────────────────────────────────────────
+# tpm looks under $XDG_CONFIG_HOME/tmux/plugins/ automatically, because
+# tmux.conf lives at $XDG_CONFIG_HOME/tmux/tmux.conf. git-repo because tpm is
+# itself a git tool and its update path assumes a real checkout.
+[".config/tmux/plugins/tpm"]
+    type          = "git-repo"
+    url           = "https://github.com/tmux-plugins/tpm.git"
+    refreshPeriod = "168h"
+    [".config/tmux/plugins/tpm".pull]
+        args = ["--ff-only"]
+
+# Catppuccin, pinned to v2.3.0 rather than floating on #latest.
+#
+# The directory MUST be named "tmux", not "catppuccin". tpm does not glob the
+# plugins directory — it reads the `set -g @plugin 'catppuccin/tmux'` line from
+# tmux.conf and derives the path with basename(), i.e. plugins/tmux/. Renaming
+# this key would silently stop the theme from loading.
+# (Verified in tpm's scripts/helpers/plugin_functions.sh, plugin_path_helper.)
+[".config/tmux/plugins/tmux"]
+    type            = "archive"
+    url             = "https://github.com/catppuccin/tmux/archive/refs/tags/v2.3.0.tar.gz"
+    exact           = true
+    stripComponents = 1
+    refreshPeriod   = "0"
+
+# ─── zsh plugins ──────────────────────────────────────────────────────────────
+# Sourced, in this order, by home/dot_config/zsh/conf.d/30-plugins.zsh.
+# None of these existed before: zsh-autocomplete was brew-installed but never
+# sourced, so there was no autosuggestion or highlighting at all.
+
+[".config/zsh/plugins/zsh-autosuggestions"]
+    type            = "archive"
+    url             = "https://github.com/zsh-users/zsh-autosuggestions/archive/refs/tags/v0.7.1.tar.gz"
+    exact           = true
+    stripComponents = 1
+    refreshPeriod   = "0"
+
+[".config/zsh/plugins/zsh-syntax-highlighting"]
+    type            = "archive"
+    url             = "https://github.com/zsh-users/zsh-syntax-highlighting/archive/refs/tags/0.8.0.tar.gz"
+    exact           = true
+    stripComponents = 1
+    refreshPeriod   = "0"
+
+# fzf-tab publishes no release tags, so track master.
+[".config/zsh/plugins/fzf-tab"]
+    type          = "git-repo"
+    url           = "https://github.com/Aloxaf/fzf-tab.git"
+    refreshPeriod = "168h"
+    [".config/zsh/plugins/fzf-tab".pull]
+        args = ["--ff-only"]
+
+# ─── Nerd Fonts (Linux desktop only) ──────────────────────────────────────────
+# On macOS these come from Homebrew casks (see dot_config/homebrew/Brewfile).
+# Homebrew on Linux has no casks at all, so fetch them directly.
+#   VictorMono    — the Ghostty / kitty terminal font
+#   JetBrainsMono — Zed's editor + terminal font
+# Both are required for the Nerd Font glyphs in starship.toml and the tmux theme.
+# A run_once_after_ script runs fc-cache once these land.
+{{- if and (eq .chezmoi.os "linux") .gui }}
+
+[".local/share/fonts/VictorMono"]
+    type          = "archive"
+    url           = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.0/VictorMono.tar.xz"
+    exact         = true
+    refreshPeriod = "8760h"
+    include       = ["*.ttf"]
+
+[".local/share/fonts/JetBrainsMono"]
+    type          = "archive"
+    url           = "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.0/JetBrainsMono.tar.xz"
+    exact         = true
+    refreshPeriod = "8760h"
+    include       = ["*.ttf"]
+{{- end }}
