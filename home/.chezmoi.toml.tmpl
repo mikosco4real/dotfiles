@@ -6,8 +6,8 @@
    Every prompt has a default so `chezmoi init --promptDefaults` works headless
    in Docker and CI.
 */}}
-{{- $name      := promptStringOnce . "name"      "Full name for git commits"            "Michael Okoli" -}}
-{{- $email     := promptStringOnce . "email"     "Personal git email"                   "" -}}
+{{- $name      := promptStringOnce . "name"      "Full name for git commits"            "Michael Okolo" -}}
+{{- $email     := promptStringOnce . "email"     "Personal git email"                   "okolomikel2009@gmail.com" -}}
 {{- $workEmail := promptStringOnce . "workEmail" "Work git email (blank to skip)"       "michael@webtize.com.au" -}}
 {{- $workOrg   := promptStringOnce . "workOrg"   "Work git org (matched on remote URL)" "webtize" -}}
 {{- $class     := promptChoiceOnce . "machineClass" "Machine class" (list "personal" "work") "work" -}}

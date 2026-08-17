@@ -1,0 +1,26 @@
+# ~/.config/zsh/local.zsh — machine-local shell config. NOT under version control.
+#
+# chezmoi seeded this file once (create_ + private_, mode 0600) and will never
+# overwrite it, so anything you add here survives every `chezmoi apply`. Because
+# it lives outside the repo it needs no .gitignore entry.
+#
+# Put here anything that is true of THIS machine only:
+#   - API keys and tokens
+#   - one-off PATH additions for locally-installed tools
+#   - work VPN / cloud profile variables
+#
+# Sourced last by conf.d/99-local.zsh, so it overrides everything else.
+# The _path_prepend helper from conf.d/05-path.zsh is still available.
+
+# ─── Antigravity ──────────────────────────────────────────────────────────────
+# Moved out of the tracked .zshrc, which hardcoded /Users/mokolo and exported
+# this path twice (two byte-identical blocks).
+_path_prepend "$HOME/.antigravity/antigravity/bin"
+
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+# export ANTHROPIC_API_KEY="..."
+# export OPENAI_API_KEY="..."
+# export AWS_PROFILE="..."
+{{ if eq .machineClass "work" -}}
+# This machine is configured as machineClass = "work".
+{{ end -}}

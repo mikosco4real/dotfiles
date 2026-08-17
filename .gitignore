@@ -7,8 +7,4 @@ lazy-lock.json
 # macOS
 .DS_Store
 
-# TEMPORARY: the pre-migration oh-my-zsh .zshrc, kept on disk only as the
-# reference while it is split into home/dot_config/zsh/. Phase 4 deletes the
-# directory and this rule with it. Never commit it — it hardcodes /Users/mokolo.
-zshrc/
 

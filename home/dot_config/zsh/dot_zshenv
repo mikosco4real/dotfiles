@@ -1,0 +1,21 @@
+# ~/.config/zsh/.zshenv — read by EVERY zsh, including non-interactive ones
+# (`zsh -c`, scp, git hooks, cron). Only things that must be visible to those
+# belong here; interactive niceties go in conf.d/.
+
+export EDITOR="nvim"
+export VISUAL="$EDITOR"
+export PAGER="less"
+export LESS="-FRX"
+export LANG="${LANG:-en_AU.UTF-8}"
+
+# Rust. Previously in ~/.zshenv and ~/.profile as an unguarded source.
+[[ -r "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
+# Go. GOPATH/bin is added to PATH in conf.d/05-path.zsh.
+export GOPATH="$HOME/go"
+
+# Bun. BUN_INSTALL/bin is added to PATH in conf.d/05-path.zsh.
+export BUN_INSTALL="$HOME/.bun"
+
+# So a bare `brew bundle` picks up the managed Brewfile with no --file flag.
+export HOMEBREW_BUNDLE_FILE="$XDG_CONFIG_HOME/homebrew/Brewfile"

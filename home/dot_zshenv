@@ -1,0 +1,18 @@
+# ~/.zshenv — the ONLY zsh file that has to live in $HOME.
+#
+# zsh reads $ZDOTDIR/.zshenv, but ZDOTDIR defaults to $HOME and is not re-read
+# once changed. So this file's job is to define the XDG paths, point ZDOTDIR at
+# ~/.config/zsh, and then explicitly chain to the real .zshenv there. Everything
+# else lives under $ZDOTDIR.
+#
+# Do NOT put `set -euo pipefail` (or any `set -e`) in this or any other sourced
+# rc file — an error would abort shell startup and lock you out of your terminal.
+
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+export ZDOTDIR="$XDG_CONFIG_HOME/zsh"
+
+[[ -r "$ZDOTDIR/.zshenv" ]] && source "$ZDOTDIR/.zshenv"

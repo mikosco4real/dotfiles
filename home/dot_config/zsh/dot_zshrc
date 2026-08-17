@@ -1,0 +1,28 @@
+# ~/.config/zsh/.zshrc — interactive shells.
+#
+# This file is deliberately just a loader. All real configuration lives in
+# numbered fragments under conf.d/, which are sourced in ASCII order:
+#
+#   00-options     shell options and keybindings
+#   05-path        PATH assembly (deduplicated)
+#   10-history     history file and behaviour
+#   20-completion  compinit and completion styles
+#   30-plugins     vendored zsh plugins (order matters — see the file)
+#   40-aliases     aliases
+#   50-tools       mise / zoxide / fzf / bun init, all command-guarded
+#   60-prompt      starship
+#   70-darwin      macOS-only (self-guarding)
+#   75-linux       Linux-only (self-guarding)
+#   99-local       sources the gitignored local.zsh escape hatch
+#
+# Every fragment is a plain file, never a chezmoi template, so it stays a live
+# symlink into the repo and OS differences are handled with runtime $OSTYPE
+# guards instead of build-time templating.
+#
+# The (N) glob qualifier is NULL_GLOB for this pattern only: if conf.d is empty
+# or missing, the loop silently does nothing instead of erroring.
+
+for _frag in "$ZDOTDIR"/conf.d/*.zsh(N); do
+  source "$_frag"
+done
+unset _frag
