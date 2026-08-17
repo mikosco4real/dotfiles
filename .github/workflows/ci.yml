@@ -31,7 +31,7 @@ jobs:
     name: lint (shellcheck, shfmt, zsh -n)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install tooling
         run: |
@@ -152,7 +152,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             sudo ca-certificates curl file git locales procps build-essential zsh
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install chezmoi
         run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
