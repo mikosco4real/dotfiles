@@ -1,0 +1,118 @@
+# ~/.config/ghostty/config
+#
+# Ghostty reads this XDG path on BOTH macOS and Linux, so one file serves both.
+# On macOS it ALSO reads ~/Library/Application Support/com.mitchellh.ghostty/config
+# afterwards, which would win on conflicts — that file was renamed to .bak
+# during migration.
+#
+# Ported from the kitty config (kept as a fallback at ~/.config/kitty/kitty.conf).
+# Every key here was checked against `ghostty +show-config --default --docs` for
+# Ghostty 1.3.1 rather than taken from the website.
+#
+#   Validate:  ghostty +validate-config
+#   Reload:    Cmd/Ctrl+Shift+,
+#   Themes:    ghostty +list-themes
+#
+# Settings whose kitty equivalent merely restated a Ghostty default are omitted
+# rather than translated: disable_ligatures never, enable_audio_bell no,
+# mouse_hide_wait, click_interval, select_by_word_characters,
+# hide_window_decorations no, macos_thicken_font 0, macos_hide_from_tasks no,
+# macos_window_resizable, adjust_column_width 100%, term.
+#
+# kitty settings with NO Ghostty equivalent, deliberately dropped:
+#   mouse_map              the URL-click modifier is hardcoded (Ctrl on Linux,
+#                          Cmd on macOS) and is not configurable
+#   tab bar styling        tab_bar_style/fade/separator/margins/tab_title_template/
+#                          active_tab_font_style — Ghostty tab bars are native
+#                          AppKit/libadwaita widgets and are not stylable
+#   placement_strategy     no centering option exists
+#   pointer shapes         not configurable
+#   Shift+Alt+B / F        word-wise selection: adjust_selection moves only by
+#                          cell/line/page and cannot START a selection
+#   editor                 no such key; Ghostty uses $EDITOR. The old kitty line
+#                          hardcoded /opt/homebrew/bin/nvim, which breaks on
+#                          Intel macOS and Linux anyway.
+
+# ─── Theme ────────────────────────────────────────────────────────────────────
+# Built in — the four vendored kitty catppuccin files are not needed here.
+# The name must match the theme filename EXACTLY, spaces included:
+# "catppuccin-mocha" does not resolve, and a lowercase spelling would happen to
+# work on case-insensitive APFS and then break on ext4.
+theme = Catppuccin Mocha
+
+# For automatic light/dark switching instead, pair these two:
+# theme = light:Catppuccin Latte,dark:Catppuccin Mocha
+# window-theme = system
+
+# Ghostty's Catppuccin port picks selection colours that differ from the kitty
+# port (surface2 rather than rosewater). Uncomment to match the old look —
+# config values are applied on top of the theme, so these must come after it.
+# selection-background = #f5e0dc
+# selection-foreground = #1e1e2e
+
+# ─── Font ─────────────────────────────────────────────────────────────────────
+# Bold/Italic/BoldItalic are discovered automatically within the family, so the
+# four separate kitty font_* lines collapse to one. font-family-bold and friends
+# are only for pulling a style from a DIFFERENT family.
+font-family = VictorMono Nerd Font Mono
+font-size = 16
+
+# kitty's `adjust_line_height 120%`. NOTE Ghostty's value is a DELTA, not a
+# target: 120% of the original is +20%. Writing 120% here would give a 2.2x cell.
+adjust-cell-height = 20%
+
+# ─── Window ───────────────────────────────────────────────────────────────────
+# kitty's `window_padding_width 0 8 0 8` is top/right/bottom/left.
+window-padding-x = 8
+window-padding-y = 0
+
+# ─── Cursor ───────────────────────────────────────────────────────────────────
+cursor-style = underline
+# kitty set an absolute 2.0pt; Ghostty's adjust-* keys are relative, so this is
+# +1px. (Only applies to underline cursors since Ghostty 1.2.0.)
+adjust-cursor-thickness = 1
+
+# ─── Shell integration ────────────────────────────────────────────────────────
+# kitty's `shell_integration no-title`. Omitted features keep their defaults, so
+# cursor and path stay enabled and this one line is sufficient. Nothing is
+# required in .zshrc — Ghostty injects by pointing ZDOTDIR at its own bundled
+# directory, which then sources the real config.
+shell-integration-features = no-title
+
+# If you SSH to hosts that lack the xterm-ghostty terminfo, this is the analogue
+# of `kitten ssh` (manage the cache with `ghostty +ssh-cache`):
+# shell-integration-features = no-title,ssh-terminfo,ssh-env
+
+# ─── Keybindings (both platforms) ─────────────────────────────────────────────
+# Syntax: keybind = trigger=action
+#   modifiers  shift | ctrl(control) | alt(opt,option) | super(cmd,command)
+#   raw bytes  text:<zig-string> | esc:<str> | csi:<str>
+#   prefixes   all: | global: | unconsumed: | performable:
+
+# Disambiguated Enter, for TUIs that don't negotiate the Kitty keyboard protocol.
+keybind = shift+enter=text:\x1b[13;2u
+keybind = ctrl+enter=text:\x1b[13;5u
+
+# Word-wise motion. These are Ghostty defaults on macOS but are NOT bound on
+# Linux, so bind them explicitly for parity.
+keybind = alt+arrow_left=esc:b
+keybind = alt+arrow_right=esc:f
+
+# Retitle a tab. kitty's `map f2 set_tab_title " "` has no exact analogue;
+# set_tab_title:<text> takes its argument literally, so prompting is closer.
+keybind = f2=prompt_tab_title
+
+# ─── OS-specific overrides ────────────────────────────────────────────────────
+# The `?` prefix means "optional": a missing file is silently ignored, so each
+# machine only needs the file that applies to it. chezmoi's templated
+# .chezmoiignore drops the non-matching one.
+#
+# Ordering is guaranteed and matters: config-file directives are processed at the
+# END of the containing file, and the included file is loaded after it — so
+# anything below always overrides the settings above.
+config-file = ?config.darwin
+config-file = ?config.linux
+
+# Machine-local, never committed. Create it by hand if you want per-machine
+# tweaks (font size on an external monitor, a different theme, etc.).
+config-file = ?config.local

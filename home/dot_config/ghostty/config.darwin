@@ -1,0 +1,43 @@
+# macOS-only Ghostty settings. Pulled in by `config-file = ?config.darwin`.
+# chezmoi does not deploy this file on Linux (see home/.chezmoiignore).
+
+# kitty's `macos_option_as_alt both`. Lets Alt reach the shell as a real Alt
+# rather than composing accented characters.
+macos-option-as-alt = true
+
+# kitty's `macos_quit_when_last_window_closed no`. Already the macOS default;
+# stated explicitly so it reads symmetrically with config.linux, where the
+# platform default is the opposite.
+quit-after-last-window-closed = false
+
+# The kitty theme files set `macos_titlebar_color system`. Ghostty defaults to
+# `transparent`, which blends the titlebar into the background — arguably nicer
+# with Catppuccin. Uncomment for the literal kitty behaviour.
+# macos-titlebar-style = native
+
+# ─── Line start / end ─────────────────────────────────────────────────────────
+# Deliberately NOT carried over from kitty, which had these WRONG:
+#   map cmd+left  send_text all \x05   -> \x05 is Ctrl-E = END of line
+#   map cmd+right send_text all \x07   -> \x07 is Ctrl-G = abort / bell
+# So Cmd+Left jumped to the end and Cmd+Right rang the bell. The correct pair is
+# \x01 (Ctrl-A, start) and \x05 (Ctrl-E, end) — which is exactly what Ghostty
+# already binds by default on macOS. Left unset on purpose; the defaults are right.
+
+# ─── Tabs ─────────────────────────────────────────────────────────────────────
+# Cmd+1..8 are already goto_tab:1..8 by default. Only Cmd+9 needs overriding,
+# because Ghostty defaults it to last_tab.
+keybind = super+9=goto_tab:9
+
+# `performable:` lets the key fall through to the running program when the action
+# can't do anything (e.g. only one tab open).
+#
+# Two conflicts worth knowing about:
+#   super+k defaults to clear_screen, so it is reclaimed as super+shift+k below.
+#   super+h collides with the macOS "Hide Ghostty" menu item. Ghostty 1.3
+#   regressed here (issue #11396) and fixed it in 1.3.1 (PR #11403), which is
+#   what's installed. If Ghostty still hides instead of switching tabs, override
+#   the menu item: System Settings > Keyboard > Keyboard Shortcuts >
+#   App Shortcuts > + > Ghostty > "Hide Ghostty".
+keybind = performable:super+k=next_tab
+keybind = performable:super+h=previous_tab
+keybind = super+shift+k=clear_screen

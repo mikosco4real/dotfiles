@@ -3,7 +3,10 @@
 
 # Sets user-defined palette
 add_newline = true
-command_timeout = 43200000
+# Milliseconds. Was 43200000 (12 hours), which effectively disabled starship's
+# "this module is too slow" safety net — a hanging git or version command would
+# have stalled the prompt indefinitely. 1000ms is generous but bounded.
+command_timeout = 1000
 # Palettes must be defined _after_ this line
 palette = "catppuccin_mocha"
 
