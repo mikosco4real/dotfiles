@@ -1,0 +1,97 @@
+{{/*
+   ~/.gitconfig — rendered from chezmoi data, so identity is never committed.
+   This is a template, so it is materialised as a real file rather than a
+   symlink (symlink mode deliberately exempts templates).
+
+   Do NOT also create ~/.config/git/config: when ~/.gitconfig exists, git
+   ignores the XDG config file entirely and it would be silently dead.
+   ~/.config/git/ignore is unaffected and still works.
+*/}}
+[user]
+	name = {{ .name | quote }}
+	email = {{ .email | quote }}
+
+[init]
+	defaultBranch = main
+
+[core]
+	editor = nvim
+	excludesFile = ~/.config/git/ignore
+	pager = {{ if lookPath "delta" }}delta{{ else }}less -FRX{{ end }}
+
+[url "git@github.com:{{ .workOrg }}/"]
+	insteadOf = https://github.com/{{ .workOrg }}/
+
+[push]
+	default = current
+	autoSetupRemote = true
+	followTags = true
+
+[pull]
+	rebase = true
+
+[rebase]
+	autoStash = true
+	autosquash = true
+
+[fetch]
+	prune = true
+	pruneTags = true
+
+[merge]
+	conflictstyle = zdiff3
+
+[diff]
+	colorMoved = default
+	algorithm = histogram
+	renames = copies
+
+[branch]
+	sort = -committerdate
+
+[log]
+	date = iso
+
+[rerere]
+	enabled = true
+
+[help]
+	autocorrect = prompt
+
+[transfer]
+	fsckObjects = true
+
+[column]
+	ui = auto
+{{ if lookPath "delta" }}
+[interactive]
+	diffFilter = delta --color-only
+
+[delta]
+	navigate = true
+	line-numbers = true
+	hyperlinks = true
+{{ end }}
+{{- if .workEmail }}
+{{/*
+   Work identity, selected by REMOTE URL rather than by directory.
+   `hasconfig:remote.*.url` needs git >= 2.36.
+
+   A gitdir: condition would be wrong here: webtize repos live in BOTH ~/Herd
+   and ~/workspace, and ~/workspace also holds personal repos
+   (my_first_laravel_app), so no directory prefix cleanly separates them.
+   Matching the remote gets it right wherever the repo happens to sit on disk.
+
+   Both hosts and both URL forms are covered — the audit found webtize repos on
+   github.com (SSH) and bitbucket.org (SSH), and the insteadOf rule above can
+   rewrite HTTPS to SSH.
+*/}}
+[includeIf "hasconfig:remote.*.url:git@github.com:{{ .workOrg }}/**"]
+	path = ~/.config/git/config.work
+[includeIf "hasconfig:remote.*.url:https://github.com/{{ .workOrg }}/**"]
+	path = ~/.config/git/config.work
+[includeIf "hasconfig:remote.*.url:git@bitbucket.org:{{ .workOrg }}/**"]
+	path = ~/.config/git/config.work
+[includeIf "hasconfig:remote.*.url:https://bitbucket.org/{{ .workOrg }}/**"]
+	path = ~/.config/git/config.work
+{{- end }}

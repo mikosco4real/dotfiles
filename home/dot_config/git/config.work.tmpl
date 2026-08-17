@@ -1,0 +1,6 @@
+{{/*
+   Included by ~/.gitconfig only for repos whose remote points at the work org.
+   Keep this narrow: anything here applies to work repos ONLY.
+*/}}
+[user]
+	email = {{ .workEmail | quote }}
