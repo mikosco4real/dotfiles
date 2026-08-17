@@ -179,9 +179,36 @@ stylua is installed by Mason and is **not on `$PATH`** (`configs/mason.lua` sets
   its `@plugin` value.
 
   Module overrides must be set **before** `run catppuccin.tmux`, because the
-  module files use `set -ogq` (assign only if unset). Do **not** use `set -gF` for
-  a colour override: `-F` expands immediately, before `@thm_*` exists, and
-  silently yields an empty colour.
+  module files use `set -ogq` (assign only if unset). Three traps, each hit for
+  real and each documented inline:
+
+  1. Do **not** use `set -gF` for a colour override. `-F` expands immediately,
+     before `@thm_*` exists, and silently yields an empty colour — status-right
+     renders `#[fg=]` with a blank `bg=`.
+  2. A module whose text contains `#(...)` must wrap it in `#{l:...}`, or the
+     `-F` expansion of `status-right` executes it **once at parse time** and
+     freezes the result. Upstream v2.3.0 does this for `load`, `battery`, `cpu`
+     and `ram` but **not** for `uptime` or `gitmux`, so both are re-declared here.
+     gitmux froze as *empty*, because there is no pane context during parsing.
+  3. `gitmux` is the one module that must be overridden **after** the theme load:
+     `status/gitmux.conf` uses plain `set -gq`, not `set -ogq`, so it overwrites
+     anything set beforehand.
+
+  Segment toggles use `if-shell`, not tmux's own `%if`. Verified: `%if` conditions
+  are evaluated during parsing with no session context, so `#{@my_option}` and
+  even `#{ENV:...}` resolve to empty and every branch is skipped —
+  `%if "#{==:1,1}"` works while `%if "#{==:#{@knob},on}"` never fires. `if-shell`
+  shells out to the real tmux binary and preserves append order (both verified).
+
+  To see the status bar as actually rendered — `display-message -p` does **not**
+  execute `#(...)` — attach the server under test inside another tmux and capture
+  the pane:
+
+  ```bash
+  tmux -L inner -f <conf> new-session -d -s p -x 200 -y 50
+  tmux -L outer new-session -d -s cap -x 200 -y 50 "TMUX= tmux -L inner attach -t p"
+  sleep 10 && tmux -L outer capture-pane -p -t cap | tail -2
+  ```
 
   `prefix + r` runs `scripts/reload.sh`, not a bare `source-file`. catppuccin
   composes `@catppuccin_status_*` with `set -ogq`, so a plain re-source never

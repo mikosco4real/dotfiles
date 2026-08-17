@@ -205,6 +205,8 @@ jobs:
           test -x "$HOME/.config/tmux/plugins/tpm/tpm"
           test -f "$HOME/.config/tmux/plugins/catppuccin/catppuccin.tmux"
           test -x "$HOME/.config/tmux/plugins/tmux-battery/scripts/battery_percentage.sh"
+          test -x "$HOME/.config/tmux/plugins/tmux-cpu/scripts/cpu_percentage.sh"
+          test -e "$HOME/.gitmux.conf"
           test -f "$HOME/.config/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
           test "$(ls "$HOME/.config/zsh/conf.d" | wc -l)" -ge 10
           grep -q '\[user\]' "$HOME/.gitconfig"

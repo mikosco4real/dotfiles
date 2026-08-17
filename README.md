@@ -226,13 +226,29 @@ window layout, which is also automatic for every new session and is idempotent.
 `run '.../tpm'` **must stay the last line** — anything after it is ignored.
 
 Status line (Catppuccin **v2** API): window tabs are rounded pills showing the
-window *name*; the right side carries weather, battery and date/time/timezone.
+window *name*.
 
-| Segment | Source |
-|---|---|
-| Weather — location, condition, temperature | `scripts/weather.sh`, a local 15-minute-cached wttr.in call. Set the place with `set -g @weather_location "..."`. |
-| Battery icon + percentage | `tmux-plugins/tmux-battery`, vendored |
-| Date, time, timezone | catppuccin `date_time` module |
+**Knobs.** There is one block near the top of `tmux.conf` — flip a segment to
+`"on"`, hit `prefix + r`, done. Everything each one needs is already installed,
+and they render in the order listed.
+
+| Knob | Default | Shows | Needs |
+|---|---|---|---|
+| `@status_gitmux` | off | branch + dirty state (status-**left**) | `gitmux` (Brewfile) + `~/.gitmux.conf` |
+| `@status_cpu` | off | CPU % | tmux-cpu (vendored) |
+| `@status_ram` | off | RAM % | tmux-cpu (vendored) |
+| `@status_load` | off | load average | — |
+| `@status_uptime` | off | uptime | — |
+| `@status_weather` | **on** | location, condition, temperature | `scripts/weather.sh` |
+| `@status_battery` | **on** | battery icon + % | tmux-battery (vendored) |
+| `@status_datetime` | **on** | date, time, timezone | — |
+
+The extras default to off purely to keep the bar readable — with all eight on, an
+80–200 column window starts truncating the window tabs. Each one was verified
+rendering before being wired up.
+
+Weather knobs: `@weather_location` (any wttr.in place name), `@weather_units`
+(`m` for °C, `u` for °F), `@weather_ttl` (cache seconds, default 900).
 
 `prefix + r` runs `scripts/reload.sh` rather than a bare `source-file`.
 catppuccin composes `@catppuccin_status_*` with `set -ogq` (assign only if
@@ -240,12 +256,13 @@ unset), so a plain re-source never rebuilds an already-composed module and theme
 edits silently appear to do nothing. The script clears the theme's options first,
 without dropping any session.
 
-To add more segments, set the override *before* `run catppuccin.tmux` and append
-with `set -agF status-right "#{E:@catppuccin_status_<module>}"`. Available
-modules: `application session user host date_time directory battery cpu ram load
-uptime weather clima gitmux kube pomodoro_plus`. Some need their own plugin —
-see the
+Other modules exist — `application user host directory clima kube pomodoro_plus`
+— see the
 [module reference](https://github.com/catppuccin/tmux/blob/main/docs/reference/status-line.md).
+Adding one means an override set *before* `run catppuccin.tmux` plus an
+`if-shell` append; copy an existing segment and read the comments, which record
+the three traps (`-gF` eating colours, unprotected `#(...)` being frozen at parse
+time, and gitmux's `set -gq`).
 
 ### Ghostty
 

@@ -37,6 +37,7 @@ brew "tree-sitter-cli"       # REQUIRED: nvim-treesitter is pinned to its main
 
 # Multiplexer
 brew "tmux"
+brew "gitmux"                # optional tmux status segment: @status_gitmux "on"
 
 # Search / navigation — fzf, fd and zoxide are all wired up in
 # dot_config/zsh/conf.d/50-tools.zsh

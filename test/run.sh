@@ -99,6 +99,8 @@ check "reload script executable"      '[ -x "$HOME/.config/tmux/scripts/reload.s
 check "tpm vendored"                  '[ -x "$HOME/.config/tmux/plugins/tpm/tpm" ]'
 check "catppuccin vendored"           '[ -f "$HOME/.config/tmux/plugins/catppuccin/catppuccin.tmux" ]'
 check "tmux-battery vendored"         '[ -x "$HOME/.config/tmux/plugins/tmux-battery/scripts/battery_percentage.sh" ]'
+check "tmux-cpu vendored"             '[ -x "$HOME/.config/tmux/plugins/tmux-cpu/scripts/cpu_percentage.sh" ]'
+check "gitmux config deployed"        '[ -e "$HOME/.gitmux.conf" ]'
 check "zsh plugins vendored"          '[ -f "$HOME/.config/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]'
 check "gitconfig rendered"            'grep -q "\[user\]" "$HOME/.gitconfig"'
 check "git identity resolves"         '[ -n "$(git config --global user.email)" ]'

@@ -51,6 +51,17 @@
     [".config/tmux/plugins/tmux-battery".pull]
         args = ["--ff-only"]
 
+# Provides #{cpu_percentage}, #{ram_percentage} and the *_fg_color/*_bg_color
+# formats for catppuccin's cpu and ram modules. Also a tpm plugin, so the
+# directory name must match its @plugin value.
+# (catppuccin's load and uptime modules need no plugin — they parse `uptime`.)
+[".config/tmux/plugins/tmux-cpu"]
+    type          = "git-repo"
+    url           = "https://github.com/tmux-plugins/tmux-cpu.git"
+    refreshPeriod = "168h"
+    [".config/tmux/plugins/tmux-cpu".pull]
+        args = ["--ff-only"]
+
 # ─── zsh plugins ──────────────────────────────────────────────────────────────
 # Sourced, in this order, by home/dot_config/zsh/conf.d/30-plugins.zsh.
 # None of these existed before: zsh-autocomplete was brew-installed but never
