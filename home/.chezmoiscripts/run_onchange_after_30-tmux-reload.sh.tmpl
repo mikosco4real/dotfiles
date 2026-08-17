@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Reload a running tmux server after the config changes, so an existing session
+# picks it up without a manual `prefix + r`.
+#
+# tmux.conf hash: {{ include "dot_config/tmux/tmux.conf" | sha256sum }}
+set -euo pipefail
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+# No server running: nothing to reload, and starting one here would be rude.
+tmux list-sessions >/dev/null 2>&1 || exit 0
+
+printf '\033[1;34m==>\033[0m %s\n' "Reloading tmux config in the running server"
+tmux source-file "$HOME/.config/tmux/tmux.conf" || true

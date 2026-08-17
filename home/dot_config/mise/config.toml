@@ -1,0 +1,32 @@
+# ~/.config/mise/config.toml — global runtime versions.
+#
+# mise replaces nvm and pyenv. Both were problems in the old .zshrc: nvm added
+# noticeable startup cost, and `eval "$(pyenv init --path)"` was unguarded and
+# hard-errored on any machine without pyenv.
+#
+# Activated by dot_config/zsh/conf.d/50-tools.zsh, guarded on the binary
+# existing. Per-project overrides go in a project-local mise.toml, which wins
+# over this file.
+#
+# Apply with `mise install`; .chezmoiscripts/run_onchange_after_21 does it
+# automatically whenever this file changes.
+
+[tools]
+node   = "lts"
+python = "3.13"
+bun    = "latest"
+
+# PHP is deliberately absent on macOS: Laravel Herd owns `php` there, and
+# conf.d/70-darwin.zsh puts Herd ahead of any mise shim on PATH. Herd is a macOS
+# GUI app with no Linux equivalent, so on Linux mise provides PHP instead.
+# Uncomment on a Linux machine that needs PHP, or set it per-project:
+#   mise use php@8.4
+# php = "8.4"
+
+# Go, Java and uv come from Homebrew (see dot_config/homebrew/Brewfile) rather
+# than mise — they are stable, rarely need per-project pinning here, and the
+# brew builds integrate better with the rest of the toolchain.
+
+[settings]
+# Don't silently run arbitrary code from a project's mise.toml.
+trusted_config_paths = ["~/.config/mise"]

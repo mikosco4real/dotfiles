@@ -28,7 +28,6 @@ local parsers = {
     "nginx",
     "php",
     "sql",
-    "tmux",
     "tsx",
     "typescript",
     "vue",
@@ -47,3 +46,8 @@ vim.api.nvim_create_autocmd("FileType", {
         vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
     end,
 })
+
+-- Exported so the chezmoi bootstrap script can compile exactly this list
+-- synchronously on a fresh machine, rather than duplicating it. `setup.lua`
+-- loads this file with require(), so the return value is cached and reusable.
+return { parsers = parsers }

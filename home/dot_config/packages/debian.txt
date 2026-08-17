@@ -1,0 +1,48 @@
+# apt packages for Debian / Ubuntu.
+# One package per line. Blank lines and # comments are ignored.
+# Consumed by .chezmoiscripts/run_onchange_before_11-packages-debian.sh.tmpl
+#
+# Scope note. This list is deliberately SHORT. It covers only what genuinely
+# belongs to the system package manager: the toolchain, the display/clipboard
+# stack, and fonts. The CLI tools themselves come from Homebrew-on-Linux (see
+# dot_config/homebrew/Brewfile) for two concrete reasons:
+#
+#   1. Versions. Ubuntu 24.04 ships Neovim 0.9.x, but this nvim config requires
+#      >= 0.12 for vim.pack. Homebrew has 0.12.4.
+#   2. Naming. Debian renames binaries — `bat` installs as `batcat`, `fd-find`
+#      installs as `fdfind`. Aliases and configs would need per-distro special
+#      cases. Homebrew gives the same binary names as macOS.
+#
+# Homebrew itself needs the toolchain below to exist first, which is why
+# build-essential, curl, file and git are here and run in a `before_` script.
+
+# ─── Homebrew-on-Linux prerequisites (documented at docs.brew.sh) ─────────────
+build-essential
+procps
+curl
+file
+git
+
+# ─── Shell ────────────────────────────────────────────────────────────────────
+zsh
+
+# ─── Basics ───────────────────────────────────────────────────────────────────
+ca-certificates
+unzip
+tar
+xz-utils
+locales
+
+# ─── Clipboard ────────────────────────────────────────────────────────────────
+# tmux uses OSC 52 so it needs neither of these, but nvim's
+# clipboard=unnamedplus does. Install both; the zsh aliases in
+# conf.d/75-linux.zsh prefer wl-copy and fall back to xclip.
+wl-clipboard
+xclip
+
+# ─── Fonts ────────────────────────────────────────────────────────────────────
+# fontconfig provides fc-cache, which a run_once_after_ script invokes once the
+# Nerd Font archives from .chezmoiexternal.toml have landed in
+# ~/.local/share/fonts. The Nerd Fonts themselves are NOT apt packages —
+# Homebrew has no casks on Linux.
+fontconfig

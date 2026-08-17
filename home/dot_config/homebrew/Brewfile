@@ -1,0 +1,160 @@
+# ~/.config/homebrew/Brewfile
+#
+# HAND-MAINTAINED. Do not regenerate with `brew bundle dump` — it is
+# platform-unaware and strips the OS.mac? / OS.linux? guards below on every run
+# (homebrew/brew#22417). To reconcile with what's actually installed, dump to a
+# scratch file and diff instead:
+#   brew bundle dump --file=/tmp/Brewfile.new && diff /tmp/Brewfile.new "$HOMEBREW_BUNDLE_FILE"
+#
+# HOMEBREW_BUNDLE_FILE is exported in ~/.config/zsh/.zshenv, so a bare
+# `brew bundle` / `brew bundle check` finds this file with no --file flag.
+#
+# A Brewfile is Ruby evaluated with instance_eval, so OS.mac? and OS.linux? work
+# natively. Casks do not exist on Homebrew for Linux — Linux GUI apps and fonts
+# come from apt and .chezmoiexternal.toml instead. See dot_config/packages/debian.txt.
+
+# ─── Taps ─────────────────────────────────────────────────────────────────────
+tap "goreleaser/tap"
+tap "homebrew/services"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Core CLI — installed everywhere, including headless Linux boxes
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Shell + dotfiles
+# Note: zsh and git are deliberately NOT listed. macOS ships both (zsh 5.9,
+# git 2.50.1 — new enough for the hasconfig: includeIf in dot_gitconfig.tmpl),
+# and installing brew's zsh would mean adding it to /etc/shells and re-running
+# chsh for no real gain. On Linux both come from apt (see packages/debian.txt).
+brew "chezmoi"
+brew "starship"
+brew "mise"                  # replaces nvm + pyenv; see dot_config/mise/config.toml
+
+# Editor. Needs >= 0.12 for vim.pack, which this nvim config depends on.
+brew "neovim"
+brew "tree-sitter-cli"       # REQUIRED: nvim-treesitter is pinned to its main
+                             # branch, which compiles parsers via this CLI
+
+# Multiplexer
+brew "tmux"
+
+# Search / navigation — fzf, fd and zoxide are all wired up in
+# dot_config/zsh/conf.d/50-tools.zsh
+brew "fzf"
+brew "ripgrep"
+brew "fd"
+brew "zoxide"
+
+# Modern replacements, aliased in dot_config/zsh/conf.d/40-aliases.zsh.
+# Those aliases are guarded, so a machine without these still works.
+brew "eza"                   # ls
+brew "bat"                   # cat
+brew "git-delta"             # git pager / diff
+
+# Git tooling (git itself: see the note above)
+brew "gh"
+brew "lazygit"               # `lg`, and the GIT window in the tmux session layout
+brew "pre-commit"
+
+# Shell linting. Used by .pre-commit-config.yaml, `make lint` and CI. shellcheck
+# cannot lint zsh, so the zsh fragments are checked with `zsh -n` instead.
+brew "shellcheck"
+brew "shfmt"
+
+# Data / misc CLI
+brew "jq"
+brew "just"
+brew "tree"
+brew "wget"
+brew "htop"
+brew "btop"
+brew "sevenzip"
+brew "yazi"
+brew "yt-dlp"
+brew "ffmpeg"
+brew "poppler"
+brew "tesseract"
+brew "nerdfetch"
+
+# Cloud / infra
+brew "awscli"
+brew "goreleaser"
+brew "openapi-generator"
+
+# Databases
+brew "mariadb"
+brew "redis"
+
+# ── Language toolchains not managed by mise ───────────────────────────────────
+# Node, Python, Bun and Deno versions come from mise. These are the ones that
+# genuinely belong to the system package manager.
+brew "go"
+brew "openjdk@17"
+brew "uv"                    # python packaging; complements mise's interpreters
+
+# ══════════════════════════════════════════════════════════════════════════════
+# macOS only
+# ══════════════════════════════════════════════════════════════════════════════
+if OS.mac?
+  # PHP. Laravel Herd is the actual dev environment and owns `php` on macOS
+  # (see dot_config/zsh/conf.d/70-darwin.zsh). Herd itself is a GUI app
+  # installed outside Homebrew. php@8.2 is kept only for brew-php-switcher.
+  brew "php@8.2"
+  brew "brew-php-switcher"
+  brew "composer"
+
+  # iOS / Apple platform tooling — meaningless off macOS.
+  brew "cocoapods"
+  brew "libimobiledevice"
+  brew "xcodegen"
+  brew "xcodes"
+
+  # ── Terminals ──────────────────────────────────────────────────────────────
+  cask "ghostty"             # primary
+  cask "kitty"               # kept as a working fallback
+
+  # ── Editors ────────────────────────────────────────────────────────────────
+  cask "zed"
+
+  # ── Fonts ──────────────────────────────────────────────────────────────────
+  # REQUIRED, not optional: starship.toml, the tmux theme and the terminal
+  # configs all use Nerd Font glyphs, which render as tofu without these.
+  #   VictorMono    -> Ghostty + kitty
+  #   JetBrainsMono -> Zed editor + Zed terminal
+  # On Linux these come from .chezmoiexternal.toml, since Linux has no casks.
+  cask "font-victor-mono-nerd-font"
+  cask "font-jetbrains-mono-nerd-font"
+  cask "font-go-mono-nerd-font"
+  cask "font-zed-mono-nerd-font"
+
+  # ── Other GUI / CLI apps ───────────────────────────────────────────────────
+  cask "zen"                 # formerly "zen-browser"; brew renamed it
+  cask "session-manager-plugin"
+  cask "android-commandlinetools"
+end
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Linux only
+# ══════════════════════════════════════════════════════════════════════════════
+# Homebrew on Linux is used only as a top-up for CLI tools whose distro package
+# is too old. Compilers, GUI apps, fonts and system integration come from apt —
+# see dot_config/packages/debian.txt.
+if OS.linux?
+  brew "gcc"
+end
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Deliberately NOT listed
+# ══════════════════════════════════════════════════════════════════════════════
+#   stow              the previous dotfile manager; chezmoi replaces it
+#   zsh-autocomplete  was installed but never sourced. conf.d/30-plugins.zsh
+#                     uses zsh-autosuggestions + zsh-syntax-highlighting,
+#                     vendored via .chezmoiexternal.toml
+#   wezterm           installed but has no config at all; Ghostty is primary
+#                     and kitty is the fallback
+#   pyenv             replaced by mise
+#   helix             installed but its config directory is empty
+#   gtk+3, mingw-w64, gtop, telnet, pnpm, yarn, gemini-cli, opencode,
+#   codex, antigravity-cli, zen
+#                     one-off or transitive; add back deliberately if a fresh
+#                     machine turns out to need them

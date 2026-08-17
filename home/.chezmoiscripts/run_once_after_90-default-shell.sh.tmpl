@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Make zsh the login shell.
+#
+# Runs LAST, deliberately. If anything earlier in the apply failed, the login
+# shell is still whatever it was, so a broken zsh config cannot lock you out.
+set -euo pipefail
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+{{ if env "CI" -}}
+log "CI detected; not changing the login shell"
+exit 0
+{{ end -}}
+
+ZSH_BIN="$(command -v zsh || true)"
+[[ -z "$ZSH_BIN" ]] && { log "zsh not found; skipping"; exit 0; }
+
+CURRENT="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7 || echo "${SHELL:-}")"
+
+if [[ "$CURRENT" == *zsh ]]; then
+  log "Login shell is already zsh ($CURRENT)"
+  exit 0
+fi
+
+# chsh refuses any shell not listed in /etc/shells.
+if ! grep -qxF "$ZSH_BIN" /etc/shells 2>/dev/null; then
+  log "Adding $ZSH_BIN to /etc/shells (needs sudo)"
+  echo "$ZSH_BIN" | sudo tee -a /etc/shells >/dev/null || {
+    log "WARNING: could not update /etc/shells; run 'chsh -s $ZSH_BIN' yourself"
+    exit 0
+  }
+fi
+
+log "Setting login shell to $ZSH_BIN"
+chsh -s "$ZSH_BIN" || log "WARNING: chsh failed; run 'chsh -s $ZSH_BIN' yourself"

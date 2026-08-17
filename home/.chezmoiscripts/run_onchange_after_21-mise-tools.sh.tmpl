@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Install the runtimes declared in dot_config/mise/config.toml.
+#
+# mise config hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
+set -euo pipefail
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+MISE="$(command -v mise || true)"
+[[ -z "$MISE" && -x "$HOME/.local/bin/mise" ]] && MISE="$HOME/.local/bin/mise"
+[[ -z "$MISE" ]] && { log "mise not found; skipping runtime install"; exit 0; }
+
+{{ if env "CI" -}}
+log "CI detected; skipping runtime downloads"
+exit 0
+{{ end -}}
+
+log "mise install (node, python, bun — this can take a few minutes)"
+# Non-fatal: a single runtime failing to build should not abort the whole apply.
+"$MISE" install || log "WARNING: some runtimes failed; run 'mise install' by hand to see why"
+
+"$MISE" ls --current 2>/dev/null || true

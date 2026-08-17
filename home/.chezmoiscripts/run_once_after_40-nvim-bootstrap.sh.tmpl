@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Zero-touch Neovim first launch.
+#
+# Replaces four steps the old CLAUDE.md merely documented: sync plugins, build
+# the base46 highlight cache, install Mason packages, compile treesitter parsers.
+#
+# The commands used here were verified against the live config, because the
+# documented ones do not exist:
+#   :Pack update       does NOT exist. vim.pack is a Lua API, not an ex command.
+#                      vim.pack.update(nil, {force=true}) — force skips the
+#                      interactive confirmation buffer, which would hang headless.
+#   :MasonInstallAll   is registered by the NvChad ui plugin but is not loaded in
+#                      headless mode, and its install_all() is fully async and
+#                      calls `:Mason` (needs a UI). Instead we take the package
+#                      list from the synchronous get_pkgs(), which does the
+#                      lspconfig/conform -> mason name mapping, and hand it to
+#                      :MasonInstall, which mason implements with an explicit
+#                      blocking path when platform.is_headless.
+#   :BuildHighlights   exists and works (defined at the bottom of init.lua).
+#
+# Deliberately run_once_ and NOT run_onchange_: this takes minutes and must not
+# re-run on every Lua edit. To force it again:
+#   chezmoi state delete-bucket --bucket=scriptState
+set -euo pipefail
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+command -v nvim >/dev/null 2>&1 || { log "nvim not found; skipping"; exit 0; }
+
+{{ if env "CI" -}}
+log "CI detected; skipping nvim bootstrap"
+exit 0
+{{ end -}}
+
+# nvim-treesitter is pinned to its main branch, which compiles parsers with the
+# tree-sitter CLI instead of shipping prebuilt ones.
+command -v tree-sitter >/dev/null 2>&1 || \
+  log "WARNING: tree-sitter CLI missing (brew install tree-sitter-cli) — parsers will fail to build."
+
+# Every step is non-fatal on purpose: one plugin or one LSP server failing must
+# not abort the apply and leave the rest of the machine unprovisioned.
+
+log "nvim: syncing plugins"
+nvim --headless '+lua vim.pack.update(nil, { force = true })' +qa 2>&1 | tail -3 || true
+
+log "nvim: building base46 highlight cache"
+nvim --headless '+BuildHighlights' +qa 2>&1 | tail -2 || true
+
+log "nvim: installing Mason packages (LSP servers, formatters)"
+# Ask the config which packages it wants. get_pkgs() is synchronous and does the
+# lspconfig/conform/lint -> mason name mapping for us.
+MASON_PKGS=$(nvim --headless '+lua
+  local ok, m = pcall(require, "nvchad.mason")
+  if not ok then return end
+  local out = {}
+  local reg_ok, reg = pcall(require, "mason-registry")
+  for _, p in ipairs(m.get_pkgs()) do
+    if type(p) == "string" and p ~= "" then
+      -- Skip anything already present so re-runs are cheap.
+      local installed = false
+      if reg_ok then
+        local pok, pkg = pcall(reg.get_package, (p:gsub("@.*", "")))
+        installed = pok and pkg:is_installed()
+      end
+      if not installed then table.insert(out, p) end
+    end
+  end
+  io.stdout:write(table.concat(out, "\n"))
+' +qa 2>/dev/null || true)
+
+if [[ -z "${MASON_PKGS//[[:space:]]/}" ]]; then
+  log "  all Mason packages already installed"
+else
+  # One package per nvim invocation. Mason's headless path exits 1 (via `1cq`)
+  # if ANY name in a batch is invalid, which would abandon the whole batch — and
+  # a single very long ex command line is fragile besides. Per-package isolates
+  # failures and makes them visible.
+  while IFS= read -r pkg; do
+    [[ -z "$pkg" ]] && continue
+    printf '    %-40s' "$pkg"
+    if nvim --headless "+MasonInstall $pkg" +qa >/dev/null 2>&1; then
+      echo "ok"
+    else
+      echo "FAILED (run :Mason in nvim to retry)"
+    fi
+  done <<< "$MASON_PKGS"
+fi
+
+log "nvim: compiling treesitter parsers (the slow part)"
+# The config's own install() call is async, so headless nvim would exit before
+# parsers finish. Re-issue it here for exactly the config's declared list — read
+# back from configs.treesitter rather than duplicated — and wait on the returned
+# handle, so a fresh machine has working highlighting on first open.
+nvim --headless '+lua
+  local ok_ts, ts = pcall(require, "nvim-treesitter")
+  local ok_cfg, cfg = pcall(require, "configs.treesitter")
+  if not (ok_ts and ok_cfg and type(cfg) == "table" and cfg.parsers) then return end
+  local h = ts.install(cfg.parsers)
+  if type(h) == "table" and h.wait then pcall(function() h:wait(600000) end) end
+' +qa 2>&1 | tail -3 || true
+
+log "nvim bootstrap done. Open nvim and run :checkhealth to verify."

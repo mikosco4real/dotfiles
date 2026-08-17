@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Install everything in the Brewfile. Runs on both macOS and Linux — the
+# Brewfile's own OS.mac? / OS.linux? guards decide what applies.
+#
+# run_onchange_ re-runs when THIS SCRIPT'S CONTENT changes. Inlining the
+# Brewfile's hash below is what makes that equivalent to "re-run when the
+# package list changes", so `chezmoi apply` does not pay for a brew bundle on
+# every single run.
+#
+# Brewfile hash: {{ include "dot_config/homebrew/Brewfile" | sha256sum }}
+set -euo pipefail
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+for _b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+  [[ -x "$_b" ]] && eval "$("$_b" shellenv)" && break
+done
+
+if ! command -v brew >/dev/null 2>&1; then
+  echo "WARNING: brew not found; skipping Brewfile. Re-run 'chezmoi apply' once it is installed." >&2
+  exit 0
+fi
+
+# Read the SOURCE copy, not ~/.config/homebrew/Brewfile: this is a before_
+# script, so the deployed symlink does not necessarily exist yet on a first run.
+BREWFILE={{ joinPath .chezmoi.sourceDir "dot_config/homebrew/Brewfile" | quote }}
+
+{{ if not .gui -}}
+# Headless machine: formulae only, no GUI casks.
+export HOMEBREW_BUNDLE_CASK_SKIP=1
+{{ end -}}
+
+log "brew bundle install"
+# --no-upgrade keeps this fast and idempotent: it installs what is missing but
+# does not churn through upgrading everything already present. Upgrades are a
+# separate, deliberate action — `make update`.
+#
+# Do NOT add --no-lock: Homebrew 6.x removed it along with Brewfile.lock.json,
+# and passing it makes brew print its usage text and exit non-zero, which this
+# handler would then swallow into a warning nobody reads.
+brew bundle install --file="$BREWFILE" --no-upgrade || {
+  echo "WARNING: brew bundle reported errors. Check the output above; a single" >&2
+  echo "unavailable cask should not block the rest of the setup." >&2
+}
+
+log "Brewfile done"

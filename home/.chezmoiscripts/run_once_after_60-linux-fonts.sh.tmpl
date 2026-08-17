@@ -1,0 +1,27 @@
+{{ if and (eq .chezmoi.os "linux") .gui -}}
+#!/usr/bin/env bash
+# Rebuild the font cache after .chezmoiexternal.toml has unpacked the Nerd Fonts
+# into ~/.local/share/fonts. Without this, the glyphs in starship.toml, the tmux
+# theme and the terminal configs render as tofu boxes until the next login.
+#
+# macOS needs no equivalent — fonts arrive as Homebrew casks and are registered
+# automatically.
+set -euo pipefail
+
+command -v fc-cache >/dev/null 2>&1 || {
+  echo "fc-cache not found (install fontconfig); skipping font cache rebuild" >&2
+  exit 0
+}
+
+printf '\033[1;34m==>\033[0m %s\n' "Rebuilding font cache"
+fc-cache -f "$HOME/.local/share/fonts"
+
+# Confirm the two fonts the configs actually reference resolved.
+for f in "VictorMono Nerd Font" "JetBrainsMono Nerd Font"; do
+  if fc-list | grep -qi "${f%% *}"; then
+    echo "  found: $f"
+  else
+    echo "  WARNING: $f not found after cache rebuild" >&2
+  fi
+done
+{{ end -}}
