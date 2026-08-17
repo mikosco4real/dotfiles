@@ -14,7 +14,16 @@ if [[ "$(id -u)" -eq 0 ]]; then SUDO=""; else SUDO="sudo"; fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-PKGS=$(grep -vE '^\s*(#|$)' {{ joinPath .chezmoi.sourceDir "dot_config/packages/debian.txt" | quote }} | tr '\n' ' ')
+# `|| true` is load-bearing: grep exits 1 when nothing matches, and under
+# `set -e` with pipefail that would abort the entire apply just because the
+# package list happened to be all comments. An empty list should be a no-op.
+PKGLIST={{ joinPath .chezmoi.sourceDir "dot_config/packages/debian.txt" | quote }}
+PKGS=$(grep -vE '^\s*(#|$)' "$PKGLIST" 2> /dev/null | tr '\n' ' ' || true)
+
+if [[ -z "${PKGS// /}" ]]; then
+  log "no packages listed in $PKGLIST; nothing to do"
+  exit 0
+fi
 
 log "apt-get install: $PKGS"
 $SUDO apt-get update -qq
