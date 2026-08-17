@@ -1,0 +1,86 @@
+{
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry"
+    }
+  },
+  "cli_default_open_behavior": "new_window",
+  "project_panel": {
+    "dock": "left"
+  },
+  "outline_panel": {
+    "dock": "left"
+  },
+  "collaboration_panel": {
+    "dock": "left"
+  },
+  "git_panel": {
+    "dock": "left"
+  },
+  "edit_predictions": {
+    "provider": "zed"
+  },
+  "agent": {
+    "dock": "right",
+    "tool_permissions": {
+      "default": "allow"
+    },
+    "default_model": {
+      "enable_thinking": true,
+      "provider": "ollama",
+
+      "model": "kimi-k2.6",
+    },
+
+    "favorite_models": [],
+
+    "model_parameters": [],
+  },
+
+  "language_models": {
+    "ollama": {
+      "api_url": "https://ollama.com",
+    },
+  },
+
+  "theme": "Catppuccin Mocha",
+  "tab_size": 2,
+  "preferred_line_length": 120,
+  "soft_wrap": "editor_width",
+  "ui_font_size": 14,
+  "buffer_font_size": 12,
+  "buffer_font_family": "JetBrainsMono Nerd Font Mono",
+  "autosave": "on_focus_change",
+  "format_on_save": "on",
+  "vim_mode": true,
+  "projects_online_by_default": true,
+  "terminal": {
+    "font_family": "JetBrainsMono Nerd Font",
+    "blinking": "off",
+  },
+  "languages": {
+    "SQL": {
+      "format_on_save": "off",
+    },
+    "Vue.js": {
+      "linked_edits": false,
+    },
+    "YAML": {
+      "format_on_save": "off",
+    },
+    "Python": {
+      "tab_size": 4,
+      "formatter": "language_server",
+      "format_on_save": "on",
+    },
+    "JavaScript": {
+      "tab_size": 2,
+      "formatter": {
+        "external": {
+          "command": "prettier",
+          "arguments": ["--stdin-filepath", "{buffer_path}"],
+        },
+      },
+    },
+  },
+}

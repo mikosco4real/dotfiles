@@ -1,0 +1,36 @@
+{{/*
+   Patterns match TARGET paths relative to ~, using doublestar.Match — NOT
+   gitignore semantics. There is no implicit basename matching and no implicit
+   recursion: "README.md" matches ~/README.md only, and never matches a README.md
+   nested one directory deeper. A "!" negation beats every include.
+   This file is always treated as a template, with or without a .tmpl suffix.
+
+   Note: the repo-root README.md / CLAUDE.md / Makefile / .github / test need no
+   rules here — .chezmoiroot=home puts them structurally outside the source state.
+*/}}
+
+.DS_Store
+*/.DS_Store
+
+{{/* Runtime artifacts nvim writes into its own config dir. Belt-and-braces:
+     the folded nvim symlink means chezmoi never sees these anyway. */}}
+.config/nvim/nvim-pack-lock.json
+.config/nvim/lazy-lock.json
+
+{{- if ne .chezmoi.os "darwin" }}
+{{/* macOS-only Ghostty overrides */}}
+.config/ghostty/config.darwin
+{{- end }}
+
+{{- if ne .chezmoi.os "linux" }}
+{{/* Linux-only Ghostty overrides, and fonts that macOS gets from brew casks */}}
+.config/ghostty/config.linux
+.local/share/fonts/**
+{{- end }}
+
+{{- if not .gui }}
+{{/* Headless / server / container: no GUI app config at all */}}
+.config/zed/**
+.config/kitty/**
+.config/ghostty/**
+{{- end }}

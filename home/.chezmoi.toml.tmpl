@@ -1,0 +1,37 @@
+{{/*
+   Machine-specific answers. Written to ~/.config/chezmoi/chezmoi.toml, which is
+   NOT in this repo — that is what keeps per-machine values out of version control.
+
+   All prompts use the *Once variants so re-running `chezmoi init` never re-asks.
+   Every prompt has a default so `chezmoi init --promptDefaults` works headless
+   in Docker and CI.
+*/}}
+{{- $name      := promptStringOnce . "name"      "Full name for git commits"            "Michael Okoli" -}}
+{{- $email     := promptStringOnce . "email"     "Personal git email"                   "" -}}
+{{- $workEmail := promptStringOnce . "workEmail" "Work git email (blank to skip)"       "michael@webtize.com.au" -}}
+{{- $workOrg   := promptStringOnce . "workOrg"   "Work git org (matched on remote URL)" "webtize" -}}
+{{- $class     := promptChoiceOnce . "machineClass" "Machine class" (list "personal" "work") "work" -}}
+{{- $gui       := promptBoolOnce   . "gui"       "Desktop machine? (installs GUI apps + fonts)" true -}}
+
+# Symlink dotfiles back into this repo, so editing a deployed file edits the repo
+# directly — the one Stow behaviour worth keeping. Templates, private_, create_
+# and executable_ files are exempt and are materialised as real files.
+mode = "symlink"
+
+[data]
+    name         = {{ $name      | quote }}
+    email        = {{ $email     | quote }}
+    workEmail    = {{ $workEmail | quote }}
+    workOrg      = {{ $workOrg   | quote }}
+    machineClass = {{ $class     | quote }}
+    gui          = {{ $gui }}
+
+[git]
+    autoCommit = false
+    autoPush   = false
+
+# Provisioning scripts are noise in diff/status output.
+[diff]
+    exclude = ["scripts"]
+[status]
+    exclude = ["scripts"]

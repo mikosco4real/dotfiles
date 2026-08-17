@@ -1,6 +1,14 @@
-lazy-lock.json
+# Neovim runtime artifacts. nvim writes these into its own config dir, which is
+# the folded symlink target — so they land here. They must never be committed,
+# and must never be visible to chezmoi as source state.
 nvim-pack-lock.json
+lazy-lock.json
 
-# Temporarily untracked while a cross-machine sync strategy is worked out.
+# macOS
+.DS_Store
+
+# TEMPORARY: the pre-migration oh-my-zsh .zshrc, kept on disk only as the
+# reference while it is split into home/dot_config/zsh/. Phase 4 deletes the
+# directory and this rule with it. Never commit it — it hardcodes /Users/mokolo.
 zshrc/
-zed/
+
