@@ -9,6 +9,9 @@ SOURCE_DIR := $(shell $(CHEZMOI) source-path 2>/dev/null || echo .)
 REPO_ROOT  := $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 SCRIPTS    := $(wildcard $(REPO_ROOT)/home/.chezmoiscripts/*.tmpl)
 ZSH_FRAGS  := $(wildcard $(REPO_ROOT)/home/dot_config/zsh/conf.d/*.zsh)
+# Real bash files deployed as-is (executable_ entries are never templates).
+SH_FILES   := $(wildcard $(REPO_ROOT)/home/dot_config/tmux/scripts/executable_*.sh) \
+              $(wildcard $(REPO_ROOT)/test/*.sh)
 
 .DEFAULT_GOAL := help
 .PHONY: help apply diff status update lint fmt fmt-lua test test-shell doctor externals clean
@@ -50,6 +53,12 @@ lint: ## shellcheck + shfmt on rendered scripts, zsh -n on every fragment
 	  if bash -n /tmp/_lint.sh && shellcheck -S warning /tmp/_lint.sh; then printf "  ok   %s\n" "$$(basename $$f)"; \
 	  else printf "  FAIL %s\n" "$$(basename $$f)"; fail=1; fi; \
 	done; \
+	echo "--- shellcheck + shfmt (plain .sh files) ---"; \
+	for f in $(SH_FILES); do \
+	  if shellcheck -S warning "$$f" && shfmt -d -i 2 -ci -sr "$$f" >/dev/null; then \
+	    printf "  ok   %s\n" "$$(basename $$f)"; \
+	  else printf "  FAIL %s\n" "$$(basename $$f)"; fail=1; fi; \
+	done; \
 	echo "--- zsh -n (shellcheck cannot parse zsh) ---"; \
 	for f in $(ZSH_FRAGS) $(REPO_ROOT)/home/dot_zshenv \
 	         $(REPO_ROOT)/home/dot_config/zsh/dot_zshrc \
@@ -76,7 +85,7 @@ lint: ## shellcheck + shfmt on rendered scripts, zsh -n on every fragment
 	exit $$fail
 
 fmt: ## Format shell scripts in place
-	shfmt -w -i 2 -ci -sr $(REPO_ROOT)/test
+	shfmt -w -i 2 -ci -sr $(SH_FILES)
 
 fmt-lua: ## Reformat ALL nvim Lua to nvim/.stylua.toml (large diff — deliberate)
 	@[ -x "$$HOME/.local/share/nvim/mason/bin/stylua" ] || { echo "stylua not installed"; exit 1; }

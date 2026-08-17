@@ -99,8 +99,20 @@ jobs:
           fi
           exit $fail
 
-      - name: shfmt on real shell files
-        run: shfmt -d -i 2 -ci -sr test/
+      - name: shellcheck + shfmt on plain shell files
+        # The tmux helper scripts are executable_ entries, so they are deployed
+        # verbatim rather than templated — real .sh files that can be linted
+        # directly. They were previously missed entirely.
+        run: |
+          set -uo pipefail
+          fail=0
+          files=$(ls home/dot_config/tmux/scripts/executable_*.sh test/*.sh)
+          echo "$files"
+          for f in $files; do
+            shellcheck -S warning "$f" || fail=1
+          done
+          shfmt -d -i 2 -ci -sr $files || fail=1
+          exit $fail
 
       - name: zsh -n on every zsh fragment
         # shellcheck cannot parse zsh, so syntax-check with zsh itself.
@@ -188,8 +200,11 @@ jobs:
           test -f "$HOME/.config/nvim/.stylua.toml"
           test -e "$HOME/.config/tmux/tmux.conf"
           test -x "$HOME/.config/tmux/scripts/setup-session.sh"
+          test -x "$HOME/.config/tmux/scripts/weather.sh"
+          test -x "$HOME/.config/tmux/scripts/reload.sh"
           test -x "$HOME/.config/tmux/plugins/tpm/tpm"
-          test -f "$HOME/.config/tmux/plugins/tmux/catppuccin.tmux"
+          test -f "$HOME/.config/tmux/plugins/catppuccin/catppuccin.tmux"
+          test -x "$HOME/.config/tmux/plugins/tmux-battery/scripts/battery_percentage.sh"
           test -f "$HOME/.config/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
           test "$(ls "$HOME/.config/zsh/conf.d" | wc -l)" -ge 10
           grep -q '\[user\]' "$HOME/.gitconfig"

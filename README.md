@@ -221,15 +221,31 @@ Post-NvChad: dropped the meta-framework and `lazy.nvim`, kept the look by loadin
 
 ### tmux
 
-Prefix stays `C-b`. `prefix + r` reloads; `prefix + L` re-applies the
-IDE/GIT/Terminal/Logs/Claude window layout, which is also automatic for every new
-session and is idempotent. `run '.../tpm'` **must stay the last line** —
-anything after it is ignored.
+Prefix stays `C-b`. `prefix + L` re-applies the IDE/GIT/Terminal/Logs/Claude
+window layout, which is also automatic for every new session and is idempotent.
+`run '.../tpm'` **must stay the last line** — anything after it is ignored.
 
-Known issue: the `@catppuccin_*` options are v0.3-era names that v2.x ignores, so
-the status bar renders with v2 defaults. Rewriting them against the
-[v2 reference](https://github.com/catppuccin/tmux/blob/main/docs/reference/configuration.md)
-is an open follow-up.
+Status line (Catppuccin **v2** API): window tabs are rounded pills showing the
+window *name*; the right side carries weather, battery and date/time/timezone.
+
+| Segment | Source |
+|---|---|
+| Weather — location, condition, temperature | `scripts/weather.sh`, a local 15-minute-cached wttr.in call. Set the place with `set -g @weather_location "..."`. |
+| Battery icon + percentage | `tmux-plugins/tmux-battery`, vendored |
+| Date, time, timezone | catppuccin `date_time` module |
+
+`prefix + r` runs `scripts/reload.sh` rather than a bare `source-file`.
+catppuccin composes `@catppuccin_status_*` with `set -ogq` (assign only if
+unset), so a plain re-source never rebuilds an already-composed module and theme
+edits silently appear to do nothing. The script clears the theme's options first,
+without dropping any session.
+
+To add more segments, set the override *before* `run catppuccin.tmux` and append
+with `set -agF status-right "#{E:@catppuccin_status_<module>}"`. Available
+modules: `application session user host date_time directory battery cpu ram load
+uptime weather clima gitmux kube pomodoro_plus`. Some need their own plugin —
+see the
+[module reference](https://github.com/catppuccin/tmux/blob/main/docs/reference/status-line.md).
 
 ### Ghostty
 

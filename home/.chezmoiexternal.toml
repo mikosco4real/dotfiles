@@ -29,17 +29,27 @@
 
 # Catppuccin, pinned to v2.3.0 rather than floating on #latest.
 #
-# The directory MUST be named "tmux", not "catppuccin". tpm does not glob the
-# plugins directory — it reads the `set -g @plugin 'catppuccin/tmux'` line from
-# tmux.conf and derives the path with basename(), i.e. plugins/tmux/. Renaming
-# this key would silently stop the theme from loading.
-# (Verified in tpm's scripts/helpers/plugin_functions.sh, plugin_path_helper.)
-[".config/tmux/plugins/tmux"]
+# Named "catppuccin" rather than "tmux". tmux.conf loads the theme directly with
+# `run`, not as a tpm @plugin, because status-right must be assembled between the
+# theme loading and tpm running. tpm therefore no longer derives this path from
+# basename() of a @plugin value, so the directory is free to be named sensibly.
+[".config/tmux/plugins/catppuccin"]
     type            = "archive"
     url             = "https://github.com/catppuccin/tmux/archive/refs/tags/v2.3.0.tar.gz"
     exact           = true
     stripComponents = 1
     refreshPeriod   = "0"
+
+# Provides #{battery_percentage} and #{battery_icon} for catppuccin's battery
+# module. This one IS a tpm plugin: it works by substituting those placeholders
+# into status-right when tpm runs, so the directory name must stay "tmux-battery"
+# to match basename() of the @plugin value in tmux.conf.
+[".config/tmux/plugins/tmux-battery"]
+    type          = "git-repo"
+    url           = "https://github.com/tmux-plugins/tmux-battery.git"
+    refreshPeriod = "168h"
+    [".config/tmux/plugins/tmux-battery".pull]
+        args = ["--ff-only"]
 
 # ─── zsh plugins ──────────────────────────────────────────────────────────────
 # Sourced, in this order, by home/dot_config/zsh/conf.d/30-plugins.zsh.

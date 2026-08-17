@@ -9,7 +9,7 @@ session="${1:-$(tmux display-message -p '#S')}"
 
 window_count=$(tmux list-windows -t "$session" -F '#{window_id}' | wc -l | tr -d ' ')
 if [ "$window_count" -gt 1 ]; then
-    exit 0
+  exit 0
 fi
 
 start_dir=$(tmux display-message -t "$session" -p '#{session_path}')

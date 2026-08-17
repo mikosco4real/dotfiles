@@ -167,9 +167,28 @@ stylua is installed by Mason and is **not on `$PATH`** (`configs/mason.lua` sets
 - **tmux** — `~/.config/tmux/`. `run '.../tpm'` must stay the **last line**.
   `TMUX_PLUGIN_MANAGER_PATH` is pinned explicitly because tmux exports it to every
   pane, so a pre-migration session leaks a stale value and tpm then silently finds
-  no plugins. Catppuccin's directory must be named `tmux`, not `catppuccin` — tpm
-  derives the path from `basename` of the `@plugin` value. The `@catppuccin_*`
-  options are stale v0.3 names; rewriting them for v2 is an open follow-up.
+  no plugins.
+
+  Catppuccin uses the **v2** API and the ordering is load-bearing:
+  set `@catppuccin_*` options → `run catppuccin.tmux` → set `status-left` /
+  `status-right` → `run tpm` last. The theme is loaded directly with `run`, not as
+  a tpm `@plugin`, because the status line has to be assembled between the theme
+  loading and tpm running. Consequently the plugin directory is named
+  `catppuccin` (tpm no longer derives it from `basename` of a `@plugin` value) —
+  but `tmux-battery` IS a tpm plugin, so *its* directory name must keep matching
+  its `@plugin` value.
+
+  Module overrides must be set **before** `run catppuccin.tmux`, because the
+  module files use `set -ogq` (assign only if unset). Do **not** use `set -gF` for
+  a colour override: `-F` expands immediately, before `@thm_*` exists, and
+  silently yields an empty colour.
+
+  `prefix + r` runs `scripts/reload.sh`, not a bare `source-file`. catppuccin
+  composes `@catppuccin_status_*` with `set -ogq`, so a plain re-source never
+  rebuilds an already-composed module and theme edits appear to do nothing. The
+  script unsets `@thm_*` / `@catppuccin_*` / `@_ctp*` first. Verified: after a
+  config change, plain `source-file` kept the old colour while unset-then-source
+  picked up the new one.
 - **ghostty** — primary terminal. Shared `config` plus `config.darwin` /
   `config.linux`, combined via Ghostty's own `config-file = ?<file>` includes and
   gated by `.chezmoiignore`. Theme names are exact filenames with spaces:
