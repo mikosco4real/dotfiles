@@ -55,10 +55,27 @@ theme = Catppuccin Mocha
 # four separate kitty font_* lines collapse to one. font-family-bold and friends
 # are only for pulling a style from a DIFFERENT family.
 font-family = VictorMono Nerd Font Mono
-font-size = 16
+font-size = 12
+
+# Make font-size above actually authoritative.
+#
+# Ghostty defaults window-inherit-font-size to TRUE, meaning a new window/tab
+# inherits the font size of the previously focused window instead of reading the
+# config. So once you have zoomed any window with Cmd +/-, every window opened
+# afterwards inherits that zoom and edits to font-size appear to do nothing —
+# the value is correct, nothing is reading it. That is a bad fit for a
+# config-driven setup, so: new windows always start at font-size.
+#
+# Cmd +/- still zoom the current window; Cmd 0 resets it to font-size.
+window-inherit-font-size = false
 
 # kitty's `adjust_line_height 120%`. NOTE Ghostty's value is a DELTA, not a
 # target: 120% of the original is +20%. Writing 120% here would give a 2.2x cell.
+#
+# This makes every ROW 20% taller without changing glyph size. It is the main
+# reason single-row UI like the tmux status bar reads as "large" — tmux has no
+# font control of its own, so it is drawn in this font at this size in these
+# cells. Lower or remove this line to tighten line spacing.
 adjust-cell-height = 20%
 
 # ─── Window ───────────────────────────────────────────────────────────────────
