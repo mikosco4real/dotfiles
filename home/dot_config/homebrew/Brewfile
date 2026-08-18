@@ -14,8 +14,20 @@
 # come from apt and .chezmoiexternal.toml instead. See dot_config/packages/debian.txt.
 
 # ─── Taps ─────────────────────────────────────────────────────────────────────
-tap "goreleaser/tap"
-tap "homebrew/services"
+# None. Deliberately.
+#
+# goreleaser/tap was here and was both unnecessary and actively harmful:
+# goreleaser is in homebrew-core (2.17.1), and the tap is UNTRUSTED, so brew
+# refuses to load its casks. An orphaned cask install from before that policy
+# left /opt/homebrew/etc/bash_completion.d/goreleaser symlinked into a Caskroom
+# directory brew no longer tracked, which blocked the core formula from linking
+# and made the whole `brew bundle` exit non-zero.
+#
+# homebrew/services was here too and is vestigial — `brew tap-info` reports "No
+# commands/casks/formulae" and `brew services` works without it, since Homebrew
+# bundles it now.
+#
+# Before adding a tap, check the formula is not already in core.
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Core CLI — installed everywhere, including headless Linux boxes

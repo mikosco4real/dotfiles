@@ -146,14 +146,19 @@ Side-by-side testing: `NVIM_APPNAME=nvim-test nvim`.
 ### Lua formatting
 
 `nvim/.stylua.toml`: 4-space indent, 120 columns, `AutoPreferDouble` quotes,
-`call_parentheses = "None"`.
+`call_parentheses = "Always"`.
 
-**Known inconsistency:** 19 of 21 Lua files are written with `require("x")` while
-the config declares `call_parentheses = "None"`. conform.nvim reformats each file
-on save inside nvim, so the tree drifts file-by-file. `make lint` reports this as
-an advisory, not a failure. Resolve it deliberately — `make fmt-lua` to reformat
-everything, or change `.stylua.toml` to match the existing style — but do not
-sneak a 19-file reformat into an unrelated change.
+That last setting used to be `"None"` — the NvChad idiom (`require "cmp"`),
+inherited when this config was forked off NvChad. But the code was never written
+that way: 19 of 21 files used parentheses, so `stylua --check` failed on all of
+them, and because conform.nvim runs stylua on save the tree was quietly
+rewriting itself file-by-file as each one was touched.
+
+Both resolutions were measured before choosing: reformatting to `"None"` changes
+19 files, switching to `"Always"` changes 0. The codebase was already
+self-consistent — only the config disagreed with it — so the config was the thing
+that was wrong. `make lint` and CI now enforce stylua as a hard failure rather
+than the advisory it was while the mismatch stood.
 
 stylua is installed by Mason and is **not on `$PATH`** (`configs/mason.lua` sets
 `PATH = "skip"`). Use the absolute path:

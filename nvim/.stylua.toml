@@ -3,4 +3,17 @@ line_endings = "Unix"
 indent_type = "Spaces"
 indent_width = 4
 quote_style = "AutoPreferDouble"
-call_parentheses = "None"
+
+# "Always" — keep parentheses on single string/table arguments, i.e.
+# `require("cmp")` and `.setup({ ... })`.
+#
+# This was "None" (the NvChad idiom: `require "cmp"`), inherited when this config
+# was forked off NvChad. But the code here was never written that way: 19 of 21
+# files used parentheses, so `stylua --check` failed on all of them, and because
+# conform.nvim runs stylua on save the tree was silently rewriting itself
+# file-by-file as each one happened to be edited.
+#
+# Measured both resolutions before choosing: reformatting to "None" touches 19
+# files, switching to "Always" touches 0 — the codebase was already consistent,
+# only the config disagreed with it. So the config was the thing that was wrong.
+call_parentheses = "Always"

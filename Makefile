@@ -67,21 +67,15 @@ lint: ## shellcheck + shfmt on rendered scripts, zsh -n on every fragment
 	  if zsh -n "$$f" 2>/dev/null; then printf "  ok   %s\n" "$$(basename $$f)"; \
 	  else printf "  FAIL %s\n" "$$(basename $$f)"; fail=1; fi; \
 	done; \
-	echo "--- lua (stylua; ADVISORY, see note below) ---"; \
+	echo "--- lua (stylua) ---"; \
 	if [ -x "$$HOME/.local/share/nvim/mason/bin/stylua" ]; then \
-	  n=$$(cd $(REPO_ROOT)/nvim && "$$HOME/.local/share/nvim/mason/bin/stylua" --check . 2>&1 | grep -c '^Diff in ' || true); \
-	  if [ "$$n" -eq 0 ]; then echo "  ok   nvim lua"; \
+	  if (cd $(REPO_ROOT)/nvim && "$$HOME/.local/share/nvim/mason/bin/stylua" --check . >/dev/null 2>&1); then \
+	    echo "  ok   nvim lua"; \
 	  else \
-	    echo "  warn $$n file(s) not formatted per nvim/.stylua.toml"; \
-	    echo "       Pre-existing: the config is written with require(\"x\") while"; \
-	    echo "       .stylua.toml sets call_parentheses = \"None\". conform.nvim"; \
-	    echo "       reformats each file when you save it in nvim, so the repo is"; \
-	    echo "       drifting file-by-file. Resolve deliberately, either:"; \
-	    echo "         make fmt-lua      reformat all of it to the declared style"; \
-	    echo "         or change call_parentheses in nvim/.stylua.toml to match"; \
-	    echo "       Advisory only — it does not fail lint or CI."; \
+	    n=$$(cd $(REPO_ROOT)/nvim && "$$HOME/.local/share/nvim/mason/bin/stylua" --check . 2>&1 | grep -c '^Diff in ' || true); \
+	    echo "  FAIL $$n lua file(s) not formatted — run: make fmt-lua"; fail=1; \
 	  fi; \
-	else echo "  skip stylua not installed"; fi; \
+	else echo "  skip stylua not installed (Mason provides it)"; fi; \
 	exit $$fail
 
 fmt: ## Format shell scripts in place

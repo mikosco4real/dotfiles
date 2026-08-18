@@ -134,6 +134,20 @@ jobs:
       - name: Brewfile is valid Ruby
         run: ruby -c home/dot_config/homebrew/Brewfile
 
+      - name: stylua on the nvim Lua config
+        # Previously not checked in CI at all — the Makefile only reported it as
+        # an advisory, because the declared style disagreed with 19 of 21 files.
+        # nvim/.stylua.toml now matches the codebase, so this is enforced.
+        run: |
+          set -euo pipefail
+          STYLUA_VER=2.5.2
+          curl -fsSL -o /tmp/stylua.zip \
+            "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VER}/stylua-linux-x86_64.zip"
+          unzip -qo /tmp/stylua.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/stylua
+          stylua --version
+          cd nvim && stylua --check .
+
   bootstrap:
     name: bootstrap ${{ matrix.name }}
     runs-on: ${{ matrix.runs-on }}
