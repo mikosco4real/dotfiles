@@ -84,16 +84,18 @@ window-padding-x = 8
 window-padding-y = 0
 
 # ─── Cursor ───────────────────────────────────────────────────────────────────
-# Block, everywhere, always. Three things had to agree for that to hold:
+# Block at the shell. Two things had to agree for that to hold:
 #   1. this line (was `underline`)
 #   2. shell-integration's `cursor` feature, disabled below — Ghostty's docs are
 #      explicit that it "will automatically set the cursor to a bar at a prompt,
 #      REGARDLESS of this configuration"
-#   3. Neovim's guicursor, set to a:block in nvim/lua/options.lua — its default
-#      uses ver25 in insert and hor20 in replace/operator-pending, and that hor20
-#      is literally an underline
-# Programs can still override at will via DECSCUSR; those three cover the ones
-# that actually did.
+#
+# Programs can still override via DECSCUSR, and Neovim deliberately does: its
+# guicursor default is n-v-c-sm:block,i-ci-ve:ver25,r-cr-o:hor20, so inside nvim
+# the cursor is a bar in insert and a horizontal bar in replace/operator-pending.
+# That is left alone on purpose — cursor shape as a mode indicator is worth more
+# than uniformity. To force block there too:  o.guicursor = "a:block"  in
+# nvim/lua/options.lua.
 cursor-style = block
 
 # adjust-cursor-thickness deliberately dropped: it applies only to the bar and
