@@ -76,7 +76,7 @@ window-inherit-font-size = false
 # reason single-row UI like the tmux status bar reads as "large" — tmux has no
 # font control of its own, so it is drawn in this font at this size in these
 # cells. Lower or remove this line to tighten line spacing.
-adjust-cell-height = 20%
+adjust-cell-height = 10%
 
 # ─── Window ───────────────────────────────────────────────────────────────────
 # kitty's `window_padding_width 0 8 0 8` is top/right/bottom/left.
@@ -84,17 +84,29 @@ window-padding-x = 8
 window-padding-y = 0
 
 # ─── Cursor ───────────────────────────────────────────────────────────────────
-cursor-style = underline
-# kitty set an absolute 2.0pt; Ghostty's adjust-* keys are relative, so this is
-# +1px. (Only applies to underline cursors since Ghostty 1.2.0.)
-adjust-cursor-thickness = 1
+# Block, everywhere, always. Three things had to agree for that to hold:
+#   1. this line (was `underline`)
+#   2. shell-integration's `cursor` feature, disabled below — Ghostty's docs are
+#      explicit that it "will automatically set the cursor to a bar at a prompt,
+#      REGARDLESS of this configuration"
+#   3. Neovim's guicursor, set to a:block in nvim/lua/options.lua — its default
+#      uses ver25 in insert and hor20 in replace/operator-pending, and that hor20
+#      is literally an underline
+# Programs can still override at will via DECSCUSR; those three cover the ones
+# that actually did.
+cursor-style = block
+
+# adjust-cursor-thickness deliberately dropped: it applies only to the bar and
+# outlined-rect cursors, so it is a no-op for a filled block.
 
 # ─── Shell integration ────────────────────────────────────────────────────────
 # kitty's `shell_integration no-title`. Omitted features keep their defaults, so
 # cursor and path stay enabled and this one line is sufficient. Nothing is
 # required in .zshrc — Ghostty injects by pointing ZDOTDIR at its own bundled
 # directory, which then sources the real config.
-shell-integration-features = no-title
+# no-cursor is what stops the prompt from switching to a bar; see the cursor
+# section above. Omitted features keep their defaults, so `path` stays enabled.
+shell-integration-features = no-title,no-cursor
 
 # If you SSH to hosts that lack the xterm-ghostty terminfo, this is the analogue
 # of `kitten ssh` (manage the cache with `ghostty +ssh-cache`):

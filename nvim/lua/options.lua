@@ -39,6 +39,17 @@ o.updatetime = 250
 
 opt.whichwrap:append("<>[]hl")
 
+-- Block cursor in every mode.
+--
+-- Neovim's default is n-v-c-sm:block,i-ci-ve:ver25,r-cr-o:hor20 — a vertical bar
+-- in insert and a HORIZONTAL bar in replace/operator-pending. That hor20 renders
+-- as an underline, which is why the cursor changed shape while the terminal was
+-- configured for block. nvim emits DECSCUSR, so it wins over the terminal.
+--
+-- Tradeoff worth knowing: this removes cursor shape as a mode indicator. Revert
+-- by deleting this line; `:set guicursor&` restores the default for one session.
+o.guicursor = "a:block"
+
 -- Put mason-installed binaries on PATH so LSP / formatters / linters are found.
 local is_windows = vim.fn.has("win32") ~= 0
 local sep = is_windows and "\\" or "/"
