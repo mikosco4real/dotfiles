@@ -35,3 +35,34 @@ autocmd("FileType", {
         pcall(vim.treesitter.start)
     end,
 })
+
+-- Per-filetype indentation.
+--
+-- options.lua sets a global 4 wide, which is right for Lua (matching
+-- nvim/.stylua.toml) and wrong for basically every data and web format. A
+-- project's own .editorconfig still wins: nvim's built-in editorconfig support
+-- runs on BufReadPost, which is after FileType.
+local indent_two = {
+    "css",
+    "html",
+    "javascript",
+    "javascriptreact",
+    "json",
+    "jsonc",
+    "markdown",
+    "scss",
+    "toml",
+    "typescript",
+    "typescriptreact",
+    "vue",
+    "yaml",
+}
+
+autocmd("FileType", {
+    pattern = indent_two,
+    callback = function(args)
+        vim.bo[args.buf].shiftwidth = 2
+        vim.bo[args.buf].tabstop = 2
+        vim.bo[args.buf].softtabstop = 2
+    end,
+})
