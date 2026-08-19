@@ -23,6 +23,16 @@ vim.pack.add({
     { src = "https://github.com/lukas-reineke/indent-blankline.nvim" },
     { src = "https://github.com/windwp/nvim-autopairs" },
     { src = "https://github.com/lewis6991/gitsigns.nvim" },
+    { src = "https://github.com/kylechui/nvim-surround" },
+    { src = "https://github.com/folke/todo-comments.nvim" },
+    { src = "https://github.com/folke/trouble.nvim" },
+
+    -- ── Git ─────────────────────────────────────────────────────────────
+    -- gitsigns (above) covers hunks, line blame and full-file blame. These add
+    -- what it cannot do. lazygit needs no plugin: nvchad.term takes a `cmd`.
+    { src = "https://github.com/sindrets/diffview.nvim" },
+    -- linrongbin16's, not ruifm's — the original has been unmaintained since 2023.
+    { src = "https://github.com/linrongbin16/gitlinker.nvim" },
 
     -- ── File nav / picker ───────────────────────────────────────────────
     { src = "https://github.com/nvim-tree/nvim-tree.lua" },
@@ -33,10 +43,15 @@ vim.pack.add({
     -- `master` branch has known injection-query breakage on nvim 0.12 — this
     -- is the root cause of the "weird treesitter errors" you saw on NvChad.
     { src = "https://github.com/nvim-treesitter/nvim-treesitter", version = "main" },
+    -- Must track `main` too: the textobjects rewrite targets the main-branch API
+    -- above, and its `master` branch is incompatible with it.
+    { src = "https://github.com/nvim-treesitter/nvim-treesitter-textobjects", version = "main" },
 
     -- ── LSP + Mason ─────────────────────────────────────────────────────
     { src = "https://github.com/mason-org/mason.nvim" },
     { src = "https://github.com/neovim/nvim-lspconfig" },
+    -- Data-only (no setup call); consumed by yamlls / jsonls in lua/lsp.lua.
+    { src = "https://github.com/b0o/SchemaStore.nvim" },
 
     -- ── Completion + snippets ───────────────────────────────────────────
     { src = "https://github.com/hrsh7th/nvim-cmp" },

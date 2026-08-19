@@ -53,6 +53,15 @@ vim.api.nvim_create_autocmd("LspAttach", {
         end, opts("List workspace folders"))
         map("n", "<leader>D", vim.lsp.buf.type_definition, opts("Go to type definition"))
         map("n", "<leader>ra", require("nvchad.lsp.renamer"), opts("NvRenamer"))
+
+        -- Ergonomic aliases. nvim 0.11+ already provides K, grn, gra, grr, gri,
+        -- grt, gO and ]d / [d by default — these sit alongside those, they do
+        -- not replace them.
+        map({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, opts("Code action"))
+        map("n", "gr", vim.lsp.buf.references, opts("References"))
+        map("n", "gi", vim.lsp.buf.implementation, opts("Go to implementation"))
+        map("n", "gs", vim.lsp.buf.signature_help, opts("Signature help"))
+        map("n", "<leader>dd", vim.diagnostic.open_float, opts("Line diagnostics"))
     end,
 })
 
@@ -70,6 +79,46 @@ vim.lsp.config("lua_ls", {
                     "${3rd}/luv/library",
                 },
             },
+        },
+    },
+})
+
+-- yamlls: schemas on, formatter off — hard off.
+--
+-- nvim-lspconfig's lsp/yamlls.lua sets `yaml.format.enable = true` AND force-sets
+-- documentFormattingProvider = true in its own on_init. yaml-language-server
+-- implements that formatter with bundled Prettier, which parses `{{ x }}` as a
+-- nested YAML flow mapping and re-emits it as `{ { x } }`, corrupting every
+-- Tera / Jinja / Helm / Go template on save. Undoing the setting alone is not
+-- enough; the forced capability has to go too.
+--
+-- Note this on_init *replaces* lspconfig's, which in turn shadows the one set on
+-- "*" above — so call the shared on_init explicitly to keep the semantic-token
+-- strip that every other server gets.
+vim.lsp.config("yamlls", {
+    on_init = function(client, result)
+        on_init(client, result)
+        client.server_capabilities.documentFormattingProvider = false
+        client.server_capabilities.documentRangeFormattingProvider = false
+    end,
+    settings = {
+        yaml = {
+            format = { enable = false },
+            -- Alphabetising keys is a destructive "fix" for hand-written config.
+            keyOrdering = false,
+            -- SchemaStore.nvim supplies the catalogue; the server's own fetcher
+            -- would race it and double up.
+            schemaStore = { enable = false, url = "" },
+            schemas = require("schemastore").yaml.schemas(),
+        },
+    },
+})
+
+vim.lsp.config("jsonls", {
+    settings = {
+        json = {
+            schemas = require("schemastore").json.schemas(),
+            validate = { enable = true },
         },
     },
 })
@@ -93,4 +142,8 @@ vim.lsp.enable({
     "jsonls",
     "docker_compose_language_service",
     "rust_analyzer",
+    "taplo",
+    -- postgres_lsp declares workspace_required = true with a single root marker,
+    -- so it stays dormant until a project carries a postgres-language-server.jsonc.
+    "postgres_lsp",
 })

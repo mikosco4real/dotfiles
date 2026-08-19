@@ -14,9 +14,18 @@ M.base46 = {
     -- },
 }
 
+-- nvchad.mason.get_pkgs() derives most packages from the enabled LSP servers and
+-- the conform formatter list, but only for tools present in its own name map
+-- (nvchad/mason/names.lua). sqruff, yamlfmt and postgres_lsp are not in it, so
+-- they have to be named here or the bootstrap script silently skips them.
 M.mason = {
     pkgs = {
         "tailwindcss-language-server",
+        "yamlfmt",
+        "taplo",
+        "sqruff",
+        "postgres-language-server",
+        "prettierd",
     },
 }
 

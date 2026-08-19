@@ -167,6 +167,49 @@ stylua is installed by Mason and is **not on `$PATH`** (`configs/mason.lua` sets
 ~/.local/share/nvim/mason/bin/stylua .
 ```
 
+Note `nvim/lua/options.lua` prepends `~/.local/share/nvim/mason/bin` to
+`vim.env.PATH` at startup, so *inside* nvim the Mason tools do resolve. The
+`PATH = "skip"` caveat only bites shell invocations like the one above.
+
+### Formatting policy — LSP formatting is banned for data filetypes
+
+`nvim/lua/configs/conform.lua` runs **CLI formatters only** for `yaml`, `json`,
+`jsonc`, `toml`, `markdown`, `html` and `xml`. Everything else keeps
+`lsp_format = "fallback"`, so rustfmt / gofmt / phpactor still format on save —
+a blanket `"never"` would silently regress those.
+
+The reason, verified by reading the vendored source and reproduced end to end:
+`yaml-language-server` implements `textDocument/formatting` by calling **bundled
+Prettier**. Prettier parses `{{ get_env(name="X") }}` as a *nested YAML flow
+mapping* — legal YAML, so nothing throws and the server's own `catch` never
+fires — and re-emits it as `{ { get_env(name="X") } }` with `bracketSpacing`
+applied at both brace levels, replacing the whole document. One save corrupted
+16 expressions in `webtize_ai_backend_rs/config/development.yaml`.
+
+Two traps here, both hit for real:
+
+1. Clearing `yaml.format.enable` is **not sufficient**. `nvim-lspconfig`'s
+   `lsp/yamlls.lua` force-sets `documentFormattingProvider = true` in its own
+   `on_init`, so conform's `has_lsp_formatter()` check still passes. The
+   capability has to be cleared too — see the `vim.lsp.config("yamlls", …)`
+   block in `nvim/lua/lsp.lua`.
+2. That override **replaces** lspconfig's `on_init`, which in turn shadows the
+   one set on `"*"`. So it has to call the shared `on_init` itself, or yamlls
+   silently loses the semantic-token strip every other server gets.
+
+On top of both, any buffer in a guarded filetype containing `{{`, `{%` or `<%`
+is skipped entirely. The guard is scoped to data and markup filetypes on
+purpose — `{{` is ordinary syntax in Rust, Go, JS and Lua. Escape hatches:
+`:FormatInfo` (explains a skip, naming the marker and line), `:FormatDisable[!]`,
+`:FormatEnable`, `:Format!` (format anyway).
+
+YAML uses `yamlfmt`, not `prettierd`: it normalises indentation and line breaks
+but leaves quoting and flow style alone, where Prettier rewrites both.
+
+`postgres_lsp` is enabled but declares `workspace_required = true` with a single
+root marker, so it stays dormant until a project carries a
+`postgres-language-server.jsonc`. That is intended, not a misconfiguration.
+
 ## Other packages
 
 - **tmux** — `~/.config/tmux/`. `run '.../tpm'` must stay the **last line**.
