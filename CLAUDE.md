@@ -114,6 +114,16 @@ Rules that matter:
   `which -a php`.
 - Machine-specific values go in `~/.config/zsh/local.zsh` (a `create_` file,
   written once and never overwritten), not into a tracked fragment.
+- Keybindings were the gap in the oh-my-zsh migration. `bf79463` deliberately
+  reimplemented omz's implicit **history** (`10-history.zsh`) and **completion**
+  (`20-completion.zsh`) defaults, but `lib/key-bindings.zsh` was never carried
+  over, so prefix history search on the arrow keys silently disappeared —
+  restored in `c673aa0`. Two lessons: when a shell feature seems *missing* rather
+  than broken, diff the behaviour against `~/.oh-my-zsh/lib/*.zsh` (still on
+  disk) rather than `git log -S`, which finds nothing because nothing was ever
+  deleted from this repo; and bind both `^[[A` and `^[OA`, since zle switches the
+  terminal to application cursor mode via `smkx` and `^[OA` is what actually
+  arrives.
 
 ## Neovim specifics
 
