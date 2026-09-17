@@ -17,6 +17,16 @@
 # this path twice (two byte-identical blocks).
 _path_prepend "$HOME/.antigravity/antigravity/bin"
 
+# ─── Obsidian ─────────────────────────────────────────────────────────────────
+# Where this machine keeps the Obsidian vault. nvim/ sits outside chezmoi's
+# source state, so its config cannot be templated per-machine — it reads this
+# variable instead (see nvim/lua/configs/obsidian.lua).
+#
+# Only needed if the vault is somewhere unusual: without it nvim falls back to
+# the first of ~/Documents/Obsidian, ~/Obsidian, ~/Notes or the iCloud path
+# that exists. Set it to the vault ROOT — the directory containing `.obsidian/`.
+# export OBSIDIAN_VAULT="$HOME/Documents/Obsidian"
+
 # ─── Secrets ──────────────────────────────────────────────────────────────────
 # export ANTHROPIC_API_KEY="..."
 # export OPENAI_API_KEY="..."

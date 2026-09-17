@@ -124,18 +124,34 @@ vim.lsp.config("jsonls", {
 })
 
 -- markdown_oxide and obsidian.nvim's obsidian-ls are both PKM language servers.
--- Inside the Obsidian vault they duplicate each other (two sets of completions,
--- two hover sources, two go-to-definition handlers), so obsidian-ls owns the
--- vault and markdown_oxide handles markdown everywhere else.
+-- Inside a vault they duplicate each other (two sets of completions, two hover
+-- sources, two go-to-definition handlers), so obsidian-ls owns vault buffers and
+-- markdown_oxide handles markdown everywhere else.
+--
+-- The test is the `.obsidian/` directory, not a hardcoded path: that folder is
+-- what actually marks a vault root (obsidian.nvim's own find_vault_root walks up
+-- looking for it), so this keeps working on machines that keep the vault
+-- somewhere other than ~/Documents.
 vim.lsp.config("markdown_oxide", {
     root_dir = function(bufnr, on_dir)
-        local fname = vim.api.nvim_buf_get_name(bufnr)
-        local vault = vim.fn.expand("~/Documents/Obsidian")
-        if fname ~= "" and vim.startswith(vim.fs.normalize(fname), vim.fs.normalize(vault)) then
-            return -- don't attach inside the vault
+        if vim.fs.root(bufnr, { ".obsidian" }) then
+            return -- inside a vault; obsidian-ls owns it
         end
-        on_dir(vim.fs.root(bufnr, { ".obsidian", ".moxide.toml", ".git" }) or vim.fn.getcwd())
+        on_dir(vim.fs.root(bufnr, { ".moxide.toml", ".git" }) or vim.fn.getcwd())
     end,
+})
+
+-- tailwindcss lists `markdown` and `mdx` among its ~50 filetypes, and its
+-- root_dir falls back to `.git` (lsp/tailwindcss.lua:143, there so Tailwind v4
+-- projects without a tailwind.config.* still resolve). The two together meant
+-- tailwindcss-language-server started for every markdown file in any git repo,
+-- including Obsidian notes. Filter those two filetypes out while leaving the
+-- other ~48 -- html, blade, vue, the JS/TS family -- untouched, reading the list
+-- from lspconfig so it stays in step with upstream.
+vim.lsp.config("tailwindcss", {
+    filetypes = vim.tbl_filter(function(ft)
+        return ft ~= "markdown" and ft ~= "mdx"
+    end, vim.lsp.config.tailwindcss.filetypes or {}),
 })
 
 -- harper-ls replaces ltex. ltex is a JVM LanguageTool server that claims 16

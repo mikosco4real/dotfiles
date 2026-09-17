@@ -14,16 +14,63 @@
 --       useMarkdownLinks: false  -> link.style  = "wiki"
 --       attachmentFolderPath     -> attachments.folder
 
-local vault = vim.fn.expand("~/Documents/Obsidian")
+-- The vault is not in the same place on every machine, so its path is resolved
+-- at startup instead of hardcoded. nvim/ lives outside chezmoi's source state
+-- (see CLAUDE.md), so this cannot be templated -- it has to be a runtime lookup.
+--
+--   1. $OBSIDIAN_VAULT, exported from ~/.config/zsh/local.zsh -- the per-machine
+--      file chezmoi seeds once and never overwrites.
+--   2. failing that, the first conventional location that actually exists.
+--
+-- If nothing resolves, setup is skipped entirely rather than registering a
+-- workspace pointing at a directory that is not there.
+local function resolve_vault()
+    local from_env = vim.env.OBSIDIAN_VAULT
+    if from_env and from_env ~= "" then
+        local path = vim.fn.expand(from_env)
+        if vim.fn.isdirectory(path) == 1 then
+            return path
+        end
+        vim.notify("$OBSIDIAN_VAULT is not a directory: " .. path, vim.log.levels.WARN)
+    end
+
+    for _, candidate in ipairs({
+        "~/Documents/Obsidian",
+        "~/Obsidian",
+        "~/Notes",
+        "~/Library/Mobile Documents/iCloud~md~obsidian/Documents",
+    }) do
+        local path = vim.fn.expand(candidate)
+        if vim.fn.isdirectory(path) == 1 then
+            return path
+        end
+    end
+
+    return nil
+end
+
+local vault = resolve_vault()
+if not vault then
+    return
+end
+
+-- Only register sub-workspaces that exist, so a vault laid out differently on
+-- another machine does not produce startup errors.
+local workspaces = { { name = "vault", path = vault } }
+for _, ws in ipairs({
+    { name = "work", subdir = "20 Work" },
+    { name = "personal", subdir = "30 Personal" },
+}) do
+    local path = vault .. "/" .. ws.subdir
+    if vim.fn.isdirectory(path) == 1 then
+        workspaces[#workspaces + 1] = { name = ws.name, path = path }
+    end
+end
 
 require("obsidian").setup({
     legacy_commands = false,
 
-    workspaces = {
-        { name = "vault", path = vault },
-        { name = "work", path = vault .. "/20 Work" },
-        { name = "personal", path = vault .. "/30 Personal" },
-    },
+    workspaces = workspaces,
 
     notes_subdir = "00 Inbox",
     new_notes_location = "notes_subdir",
