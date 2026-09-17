@@ -27,7 +27,13 @@ for _b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/
 done
 
 if ! command -v brew >/dev/null 2>&1; then
-  echo "WARNING: brew not found; skipping Brewfile. Re-run 'chezmoi apply' once it is installed." >&2
+  # Expected on Arch: pacman covers everything there and Homebrew is never
+  # installed, so say so rather than implying something went wrong.
+  if command -v pacman >/dev/null 2>&1; then
+    echo "==> no Homebrew on Arch by design; packages come from pacman. Skipping Brewfile."
+  else
+    echo "WARNING: brew not found; skipping Brewfile. Re-run 'chezmoi apply' once it is installed." >&2
+  fi
   exit 0
 fi
 

@@ -1,0 +1,97 @@
+# pacman packages for Arch and Arch-based distros (Manjaro, EndeavourOS, CachyOS).
+# One package per line. Blank lines and # comments are ignored.
+# Consumed by .chezmoiscripts/run_onchange_before_11-packages-linux.sh.tmpl
+#
+# Scope note. Unlike debian.txt this list is LONG, and deliberately so: on Arch
+# there is no Homebrew at all. The two reasons Debian needs a brew top-up do not
+# apply here —
+#
+#   1. Versions. Arch ships current releases. Neovim in `extra` is 0.12+, which
+#      is what this config requires for vim.pack; Ubuntu 24.04 is still on 0.9.x.
+#   2. Naming. Arch does not rename binaries. `bat` is bat and `fd` is fd, so the
+#      aliases and configs need no per-distro special cases.
+#
+# So pacman owns everything that Homebrew owns on macOS and Debian. The handful
+# of tools with no official-repo package live in arch-aur.txt instead.
+#
+# Keep this in step with the cross-platform section of dot_config/homebrew/Brewfile.
+
+# ─── Toolchain ────────────────────────────────────────────────────────────────
+# base-devel is a package GROUP (gcc, make, fakeroot, binutils...). It is also a
+# hard requirement for makepkg, which is how the AUR helper gets built.
+base-devel
+procps-ng
+curl
+file
+git
+
+# ─── Shell ────────────────────────────────────────────────────────────────────
+zsh
+
+# ─── Basics ───────────────────────────────────────────────────────────────────
+ca-certificates
+unzip
+tar
+xz
+
+# ─── Clipboard ────────────────────────────────────────────────────────────────
+# tmux uses OSC 52 so it needs neither, but nvim's clipboard=unnamedplus does.
+# The zsh aliases in conf.d/75-linux.zsh prefer wl-copy and fall back to xclip.
+wl-clipboard
+xclip
+
+# ─── Fonts ────────────────────────────────────────────────────────────────────
+# fontconfig provides fc-cache, invoked by run_once_after_60 once the Nerd Font
+# archives from .chezmoiexternal.toml have landed in ~/.local/share/fonts.
+fontconfig
+
+# ─── Core CLI ─────────────────────────────────────────────────────────────────
+chezmoi
+starship
+mise
+neovim
+tree-sitter-cli
+tmux
+fzf
+ripgrep
+fd
+zoxide
+eza
+bat
+git-delta
+github-cli
+lazygit
+pre-commit
+shellcheck
+shfmt
+jq
+just
+tree
+wget
+htop
+btop
+7zip
+
+# ─── Media / documents ────────────────────────────────────────────────────────
+# yazi's optional previewers: poppler (PDF), ffmpeg (video), tesseract (OCR).
+yazi
+yt-dlp
+ffmpeg
+poppler
+tesseract
+
+# ─── Cloud / languages ────────────────────────────────────────────────────────
+aws-cli-v2
+go
+jdk17-openjdk
+uv
+
+# ─── Services ─────────────────────────────────────────────────────────────────
+# Installed, not enabled. `systemctl enable --now` them per machine.
+mariadb
+redis
+
+# ─── Terminal ─────────────────────────────────────────────────────────────────
+# Ghostty is in `extra` on Arch, so there is no PPA dance as on Ubuntu. Gated on
+# the `gui` prompt by the consuming script, not by this file.
+ghostty

@@ -6,6 +6,11 @@ if [[ -n "$HOMEBREW_PREFIX" && -d "$HOMEBREW_PREFIX/share/zsh/site-functions" ]]
   fpath=("$HOMEBREW_PREFIX/share/zsh/site-functions" $fpath)
 fi
 
+# Distro-installed completions. Arch ships a lot here (pacman, systemd, git...)
+# and Debian uses the same path; on macOS it simply does not exist. Homebrew's
+# copy above still wins, because it is prepended after this one.
+[[ -d /usr/share/zsh/site-functions ]] && fpath=(/usr/share/zsh/site-functions $fpath)
+
 # Own completions, if any.
 [[ -d "$ZDOTDIR/completions" ]] && fpath=("$ZDOTDIR/completions" $fpath)
 

@@ -24,3 +24,24 @@ if (( $+commands[apt] )); then
   alias aptu='sudo apt update && sudo apt upgrade'
   alias apts='apt search'
 fi
+
+# Arch package shorthands, named to match the apt trio above. Note `pacs` and
+# not `ps` — `ps` is procps and aliasing it would break `ps aux`.
+#
+# paru is a drop-in for pacman that also covers the AUR, so prefer it when
+# present. It is deliberately NOT run under sudo: it escalates per-operation and
+# refuses to run as root.
+if (( $+commands[pacman] )); then
+  if (( $+commands[paru] )); then
+    alias paci='paru -S'
+    alias pacu='paru -Syu'
+    alias pacs='paru -Ss'
+  else
+    alias paci='sudo pacman -S'
+    alias pacu='sudo pacman -Syu'
+    alias pacs='pacman -Ss'
+  fi
+  # Orphaned dependencies. `|| true` keeps it quiet when there are none, since
+  # `pacman -Qtdq` exits 1 on an empty list.
+  alias pacorphans='pacman -Qtdq || true'
+fi

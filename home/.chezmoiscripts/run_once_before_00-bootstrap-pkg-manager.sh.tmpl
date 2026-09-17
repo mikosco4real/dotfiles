@@ -31,29 +31,67 @@ fi
 # The Docker test harness runs as root, where sudo may not even be installed.
 if [[ "$(id -u)" -eq 0 ]]; then SUDO=""; else SUDO="sudo"; fi
 
-if command -v apt-get >/dev/null 2>&1; then
+# Distro is detected at runtime rather than from .chezmoi.osRelease, so that no
+# new key has to be added to .chezmoi.toml.tmpl — an existing machine would keep
+# its already-written ~/.config/chezmoi/chezmoi.toml and the key would be unset
+# until it re-ran `chezmoi init`.
+if command -v pacman >/dev/null 2>&1; then
+  log "Installing base packages via pacman"
+  # --needed makes this idempotent; base-devel is a group and pulls the toolchain.
+  $SUDO pacman -Sy --needed --noconfirm \
+    base-devel procps-ng curl file git zsh ca-certificates
+
+  # paru builds the handful of tools that have no core/extra package. Three
+  # conditions, all required:
+  #   - not CI: the container has nothing to build for, and the AUR step is
+  #     skipped downstream anyway.
+  #   - not root: makepkg refuses to run as root and exits non-zero. With
+  #     `set -e` that would abort the whole bootstrap.
+  #   - not already installed.
+  if [[ -z "${CI:-}" ]] && [[ "$(id -u)" -ne 0 ]] && ! command -v paru >/dev/null 2>&1; then
+    log "Installing paru (AUR helper)"
+    # paru-bin, not paru: the source package compiles a large Rust tree, and the
+    # prebuilt one is the same program.
+    _paru_build="$(mktemp -d)"
+    if git clone --depth 1 https://aur.archlinux.org/paru-bin.git "$_paru_build" 2>/dev/null &&
+      (cd "$_paru_build" && makepkg -si --noconfirm); then
+      log "paru installed"
+    else
+      echo "WARNING: paru install failed. AUR packages will be skipped." >&2
+      echo "Install it by hand and re-run: https://github.com/Morganamilo/paru" >&2
+    fi
+    rm -rf "$_paru_build"
+  fi
+
+elif command -v apt-get >/dev/null 2>&1; then
   log "Installing base packages via apt"
   export DEBIAN_FRONTEND=noninteractive
   $SUDO apt-get update -qq
   $SUDO apt-get install -y --no-install-recommends \
     build-essential procps curl file git zsh ca-certificates
-else
-  echo "WARNING: no apt-get found. This bootstrap supports Debian/Ubuntu only." >&2
-  echo "Install git, curl, zsh and a build toolchain manually, then re-run." >&2
-fi
 
-# Homebrew-on-Linux, used as a top-up for CLI tools whose apt versions are too
-# old (most importantly Neovim: Ubuntu 24.04 has 0.9.x, this config needs 0.12+).
-#
-# Skipped under CI: the companion brew-bundle script skips there too, so
-# installing Homebrew would cost minutes and then go unused.
-if [[ -z "${CI:-}" ]]; then
-  if ! command -v brew > /dev/null 2>&1 && [[ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-    log "Installing Homebrew for Linux"
-    NONINTERACTIVE=1 /bin/bash -c \
-      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  # Homebrew-on-Linux, a top-up for CLI tools whose apt versions are too old
+  # (most importantly Neovim: Ubuntu 24.04 has 0.9.x, this config needs 0.12+).
+  #
+  # Debian only. Arch ships current releases and does not rename binaries, so
+  # pacman covers everything there and installing brew would be pure overhead —
+  # see the scope note at the top of dot_config/packages/arch.txt.
+  #
+  # Skipped under CI: the companion brew-bundle script skips there too, so
+  # installing Homebrew would cost minutes and then go unused.
+  if [[ -z "${CI:-}" ]]; then
+    if ! command -v brew > /dev/null 2>&1 && [[ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+      log "Installing Homebrew for Linux"
+      NONINTERACTIVE=1 /bin/bash -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
   fi
-  [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+else
+  echo "WARNING: neither pacman nor apt-get found." >&2
+  echo "This bootstrap supports Debian/Ubuntu and Arch-based distros." >&2
+  echo "Install git, curl, zsh and a build toolchain manually, then re-run." >&2
 fi
 {{- end }}
 
