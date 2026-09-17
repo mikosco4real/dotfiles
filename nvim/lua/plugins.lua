@@ -65,7 +65,4 @@ vim.pack.add({
 
     -- ── Formatter ───────────────────────────────────────────────────────
     { src = "https://github.com/stevearc/conform.nvim" },
-
-    -- ── Filetype-specific ──────────────────────────────────────────────
-    { src = "https://github.com/luckasRanarison/tailwind-tools.nvim" },
 })
