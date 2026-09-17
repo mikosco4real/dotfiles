@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# Run the real bootstrap in a clean ubuntu:24.04 container, twice, and assert
-# that the second run changes nothing.
+# Run the real bootstrap in a clean container, twice, and assert that the second
+# run changes nothing.
 #
 # The second run is the whole point. A bootstrap that works once but is not
 # idempotent will quietly corrupt a machine on the next `make update`.
 #
-#   ./test/run.sh            build + test
-#   ./test/run.sh --shell    build, then drop into an interactive shell
-#   ./test/run.sh --no-build reuse the existing image
+#   ./test/run.sh                  build + test on Ubuntu 24.04 (default)
+#   ./test/run.sh --distro arch    build + test on Arch
+#   ./test/run.sh --shell          build, then drop into an interactive shell
+#   ./test/run.sh --no-build       reuse the existing image
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="dotfiles-test:ubuntu24"
+DISTRO="ubuntu"
+# Expanded as ${PLATFORM_ARGS[@]+"${...[@]}"} everywhere below: macOS still
+# ships bash 3.2, which under `set -u` treats "${arr[@]}" on an empty array as
+# an unbound variable rather than as nothing.
+PLATFORM_ARGS=()
 BUILD=1
 SHELL_MODE=0
 
@@ -19,8 +24,13 @@ while (($#)); do
   case "$1" in
     --shell) SHELL_MODE=1 ;;
     --no-build) BUILD=0 ;;
+    --distro)
+      shift
+      DISTRO="${1:-}"
+      ;;
+    --distro=*) DISTRO="${1#*=}" ;;
     -h | --help)
-      sed -n '2,12p' "${BASH_SOURCE[0]}"
+      sed -n '2,11p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *)
@@ -30,6 +40,31 @@ while (($#)); do
   esac
   shift
 done
+
+# One Dockerfile per distro rather than one ARG-parameterised file: the pacman
+# and apt preambles differ enough that a single file would be mostly branching.
+case "$DISTRO" in
+  ubuntu)
+    IMAGE="dotfiles-test:ubuntu24"
+    DOCKERFILE="$REPO_ROOT/test/Dockerfile.ubuntu"
+    DISTRO_LABEL="Ubuntu 24.04"
+    ;;
+  arch)
+    IMAGE="dotfiles-test:arch"
+    DOCKERFILE="$REPO_ROOT/test/Dockerfile.arch"
+    DISTRO_LABEL="Arch"
+    # Arch publishes no arm64 image, so on Apple Silicon this has to run
+    # emulated. Ask for the platform explicitly rather than letting docker fail
+    # with "no matching manifest for linux/arm64".
+    if [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ]; then
+      PLATFORM_ARGS=(--platform linux/amd64)
+    fi
+    ;;
+  *)
+    echo "unknown distro: $DISTRO (expected 'ubuntu' or 'arch')" >&2
+    exit 1
+    ;;
+esac
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() {
@@ -42,12 +77,12 @@ docker info > /dev/null 2>&1 || die "docker daemon is not running"
 
 if ((BUILD)); then
   log "Building $IMAGE"
-  docker build -q -t "$IMAGE" -f "$REPO_ROOT/test/Dockerfile" "$REPO_ROOT" > /dev/null
+  docker build -q ${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"} -t "$IMAGE" -f "$DOCKERFILE" "$REPO_ROOT" > /dev/null
 fi
 
 if ((SHELL_MODE)); then
   log "Interactive shell — the repo is at /dotfiles (read-only)"
-  exec docker run --rm -it -v "$REPO_ROOT:/dotfiles:ro" "$IMAGE" /bin/bash
+  exec docker run --rm -it ${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"} -v "$REPO_ROOT:/dotfiles:ro" "$IMAGE" /bin/bash
 fi
 
 # The container script. Copies the repo out of the read-only mount so chezmoi can
@@ -131,8 +166,8 @@ exit "$fail"
 EOF
 
 log "Running bootstrap in $IMAGE (this pulls packages; first run is slow)"
-if docker run --rm -v "$REPO_ROOT:/dotfiles:ro" "$IMAGE" /bin/bash -c "$CONTAINER_SCRIPT"; then
-  log "PASS — bootstrap works on a clean Ubuntu 24.04 and is idempotent"
+if docker run --rm ${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"} -v "$REPO_ROOT:/dotfiles:ro" "$IMAGE" /bin/bash -c "$CONTAINER_SCRIPT"; then
+  log "PASS — bootstrap works on a clean $DISTRO_LABEL and is idempotent"
 else
   die "bootstrap test failed (see output above)"
 fi

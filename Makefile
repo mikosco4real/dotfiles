@@ -12,6 +12,8 @@ ZSH_FRAGS  := $(wildcard $(REPO_ROOT)/home/dot_config/zsh/conf.d/*.zsh)
 # Real bash files deployed as-is (executable_ entries are never templates).
 SH_FILES   := $(wildcard $(REPO_ROOT)/home/dot_config/tmux/scripts/executable_*.sh) \
               $(wildcard $(REPO_ROOT)/test/*.sh)
+# Which container `make test` builds. `make test DISTRO=arch` for the other one.
+DISTRO     ?= ubuntu
 
 .DEFAULT_GOAL := help
 .PHONY: help apply diff status update lint fmt fmt-lua test test-shell doctor externals clean
@@ -85,11 +87,11 @@ fmt-lua: ## Reformat ALL nvim Lua to nvim/.stylua.toml (large diff — deliberat
 	@[ -x "$$HOME/.local/share/nvim/mason/bin/stylua" ] || { echo "stylua not installed"; exit 1; }
 	cd $(REPO_ROOT)/nvim && "$$HOME/.local/share/nvim/mason/bin/stylua" .
 
-test: ## Full bootstrap in a clean ubuntu:24.04 container, run TWICE for idempotency
-	$(REPO_ROOT)/test/run.sh
+test: ## Full bootstrap in a clean container, run TWICE (DISTRO=ubuntu|arch)
+	$(REPO_ROOT)/test/run.sh --distro $(DISTRO)
 
 test-shell: ## Drop into a shell in the test container to poke around
-	$(REPO_ROOT)/test/run.sh --shell
+	$(REPO_ROOT)/test/run.sh --distro $(DISTRO) --shell
 
 doctor: ## Check this machine's install is intact
 	@echo "--- chezmoi ---"

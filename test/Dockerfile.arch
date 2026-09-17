@@ -1,0 +1,49 @@
+# Clean-machine test for the bootstrap, Arch edition.
+#
+# Mirrors test/Dockerfile.ubuntu: a bare image with only what a fresh box really
+# has, so run_once_before_00-bootstrap-pkg-manager has to do its job.
+#
+# Built and driven by test/run.sh --distro arch, which runs the bootstrap TWICE
+# to prove idempotency.
+FROM archlinux:base
+
+# CI=true makes the scripts skip brew, mise, the nvim bootstrap, Ghostty and the
+# AUR step — and makes the pacman branch stop at the @ci-skip-below marker in
+# arch.txt. LANG works without locale-gen because glibc ships C.UTF-8, which is
+# why there is no `locales` equivalent here.
+ENV CI=true \
+    LANG=C.UTF-8
+
+# pacman 7 downloads as the unprivileged `alpm` user inside a seccomp sandbox.
+# Under QEMU emulation — an Apple Silicon Mac running this x86_64 image, which
+# is the only way to run it there, since Arch publishes no arm64 image — seccomp
+# is unavailable and every sync dies with "error restricting syscalls via
+# seccomp: 22". Turning it off here fixes the image build AND the pacman calls
+# the bootstrap itself makes. Native x86_64 runs (CI) are unaffected either way.
+# This is a disposable test image, so the sandbox buys nothing.
+RUN printf 'DisableSandbox\n' >> /etc/pacman.conf
+
+# -Syu rather than -Sy: a partial upgrade is unsupported on Arch and will
+# eventually produce broken dependencies. base-devel is needed because the
+# bootstrap's AUR path expects makepkg to exist (it is skipped under CI, but the
+# image should still resemble a real machine).
+RUN pacman -Syu --needed --noconfirm \
+      sudo ca-certificates curl file git procps-ng base-devel \
+    && pacman -Scc --noconfirm
+
+# Non-root user with passwordless sudo — the realistic case, and the only way
+# the makepkg/paru path could ever be exercised, since makepkg refuses to run
+# as root.
+RUN useradd -m -s /bin/bash tester \
+    && echo 'tester ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/tester \
+    && chmod 0440 /etc/sudoers.d/tester
+
+# Install chezmoi the same way the README tells a human to.
+RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+
+USER tester
+WORKDIR /home/tester
+
+# The repo is mounted read-only at /dotfiles by run.sh and copied in, so the test
+# can never write back to the working tree.
+CMD ["/bin/bash"]

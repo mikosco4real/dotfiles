@@ -30,12 +30,27 @@ read_manifest() {
 # ── Arch ──────────────────────────────────────────────────────────────────────
 if command -v pacman >/dev/null 2>&1; then
   PKGLIST={{ joinPath .chezmoi.sourceDir "dot_config/packages/arch.txt" | quote }}
-  PKGS=$(read_manifest "$PKGLIST")
+
+  # Under CI, stop at the @ci-skip-below marker: everything past it is the CLI
+  # toolset, which no assertion touches and which costs gigabytes to pull. On a
+  # real machine the whole file is used. See the comment block in arch.txt.
+  if [[ -n "${CI:-}" ]]; then
+    log "CI detected; installing only the pre-marker packages from arch.txt"
+    PKGS=$(sed '/@ci-skip-below/q' "$PKGLIST" | { grep -vE '^\s*(#|$)' || true; } | tr '\n' ' ')
+  else
+    PKGS=$(read_manifest "$PKGLIST")
+  fi
 
 {{ if not .gui -}}
   # Not a desktop machine: drop the GUI terminal from the list.
   PKGS=${PKGS//ghostty/}
 {{ end -}}
+
+  # Ghostty pulls a large GUI dependency tree. The Debian branch skips it under
+  # CI for the same reason; do the same here so both distros test alike.
+  if [[ -n "${CI:-}" ]]; then
+    PKGS=${PKGS//ghostty/}
+  fi
 
   if [[ -z "${PKGS// /}" ]]; then
     log "no packages listed in $PKGLIST; nothing to do"

@@ -45,6 +45,19 @@ xclip
 # archives from .chezmoiexternal.toml have landed in ~/.local/share/fonts.
 fontconfig
 
+# @ci-skip-below
+#
+# Everything ABOVE this marker is what a bootstrap needs to produce a working
+# machine: toolchain, shell, archive tools, clipboard, fonts. It matches
+# debian.txt one-for-one.
+#
+# Everything BELOW is the CLI toolset that Debian gets from Homebrew. The
+# container test skips it: none of the assertions touch ffmpeg or mariadb, and
+# pulling the lot costs gigabytes and many minutes per CI run. The marker is
+# honoured only when $CI is set, so a real machine always installs everything.
+#
+# Keep the marker on its own line — the consuming script splits on it literally.
+
 # ─── Core CLI ─────────────────────────────────────────────────────────────────
 chezmoi
 starship
@@ -80,6 +93,11 @@ ffmpeg
 poppler
 tesseract
 
+# ─── Release tooling ──────────────────────────────────────────────────────────
+# Both are in `extra` on Arch, where macOS gets them from Homebrew.
+goreleaser
+openapi-generator
+
 # ─── Cloud / languages ────────────────────────────────────────────────────────
 aws-cli-v2
 go
@@ -89,7 +107,10 @@ uv
 # ─── Services ─────────────────────────────────────────────────────────────────
 # Installed, not enabled. `systemctl enable --now` them per machine.
 mariadb
-redis
+# valkey, not redis: Arch dropped redis after the 2024 licence change. valkey is
+# the Linux Foundation fork and is protocol- and CLI-compatible, so the Brewfile's
+# `redis` and this line give the same working setup on their respective platforms.
+valkey
 
 # ─── Terminal ─────────────────────────────────────────────────────────────────
 # Ghostty is in `extra` on Arch, so there is no PPA dance as on Ubuntu. Gated on

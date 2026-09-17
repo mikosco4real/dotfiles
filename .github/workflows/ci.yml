@@ -162,6 +162,9 @@ jobs:
           - name: ubuntu-22.04
             runs-on: ubuntu-latest
             container: ubuntu:22.04
+          - name: arch
+            runs-on: ubuntu-latest
+            container: archlinux:base
           - name: macos-latest
             runs-on: macos-latest
             container: ""
@@ -172,11 +175,22 @@ jobs:
       - name: Prepare bare container
         # Minimal images have no sudo, curl or git — which is the point:
         # run_once_before_00-bootstrap-pkg-manager has to cope with that.
+        #
+        # Branch on the package manager rather than on matrix.name, so adding
+        # another Debian- or Arch-derived image needs no change here. actions/
+        # checkout also needs tar and gzip present, which the Arch base image
+        # has but a minimal Debian one does not always guarantee.
         if: matrix.container != ''
         run: |
-          apt-get update -qq
-          apt-get install -y --no-install-recommends \
-            sudo ca-certificates curl file git locales procps build-essential zsh
+          if command -v pacman >/dev/null 2>&1; then
+            # -Syu, never -Sy: partial upgrades are unsupported on Arch.
+            pacman -Syu --needed --noconfirm \
+              sudo ca-certificates curl file git procps-ng base-devel zsh tar gzip
+          else
+            apt-get update -qq
+            apt-get install -y --no-install-recommends \
+              sudo ca-certificates curl file git locales procps build-essential zsh
+          fi
 
       - uses: actions/checkout@v7
 

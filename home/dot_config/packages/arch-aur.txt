@@ -3,7 +3,9 @@
 #
 # Only tools with NO package in core/extra belong here. Everything else goes in
 # arch.txt — the AUR builds from source and is not covered by Arch's own
-# testing, so the smaller this file is, the better.
+# testing, so the smaller this file is, the better. Both entries below were
+# checked against the AUR RPC; goreleaser and openapi-generator started here and
+# moved to arch.txt once they turned out to be in `extra`.
 #
 # Skipped entirely when paru is missing, or under CI (makepkg refuses to run as
 # root, and the container has nothing to build for). A missing AUR package is a
@@ -11,10 +13,6 @@
 
 # tmux status-left segment, enabled by @status_gitmux in tmux.conf.
 gitmux
-
-# Release tooling.
-goreleaser
-openapi-generator
 
 # Fetch/system-info toy used by the shell greeting.
 nerdfetch
