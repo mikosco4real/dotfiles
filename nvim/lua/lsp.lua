@@ -123,6 +123,20 @@ vim.lsp.config("jsonls", {
     },
 })
 
+-- harper-ls replaces ltex. ltex is a JVM LanguageTool server that claims 16
+-- filetypes (markdown, gitcommit, text, html, xhtml, tex...) with `.git` as its
+-- only root marker, so it attached to almost everything and shadowed the real
+-- servers -- the NvChad statusline shows only the first client, which is why a
+-- markdown buffer reported "ltex" rather than its actual language server.
+--
+-- harper-ls is a native Rust binary, but lspconfig's default filetype list is 27
+-- entries wide because it also lints code comments. Scope it to prose so it can
+-- never shadow a language server. vim.lsp.config replaces list values rather
+-- than merging them, so this override is authoritative.
+vim.lsp.config("harper_ls", {
+    filetypes = { "markdown", "gitcommit" },
+})
+
 -- Enable everything the old config enabled, plus lua_ls.
 vim.lsp.enable({
     "lua_ls",
@@ -138,7 +152,7 @@ vim.lsp.enable({
     "pasls",
     "nginx_language_server",
     "markdown_oxide",
-    "ltex",
+    "harper_ls",
     "jsonls",
     "docker_compose_language_service",
     "rust_analyzer",
