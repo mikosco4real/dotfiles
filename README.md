@@ -1,8 +1,8 @@
 # dotfiles
 
-Personal development environment for macOS and Debian/Ubuntu Linux, managed with
-[chezmoi](https://www.chezmoi.io/). One command on a bare machine produces a
-working, identical setup: zsh, Neovim, tmux, Ghostty, starship, git.
+Personal development environment for macOS, Debian/Ubuntu and Arch Linux,
+managed with [chezmoi](https://www.chezmoi.io/). One command on a bare machine
+produces a working, identical setup: zsh, Neovim, tmux, Ghostty, starship, git.
 
 Nothing in this repo is machine-specific. Identity and secrets are supplied at
 `chezmoi init` time and live outside version control.
@@ -23,7 +23,9 @@ Nothing in this repo is machine-specific. Identity and secrets are supplied at
 | **git** | `~/.gitconfig`, `~/.config/git/` | Templated identity; work vs personal chosen by **remote URL**. |
 | **mise** | `~/.config/mise/config.toml` | node / python / bun versions. Replaces nvm + pyenv. |
 | **Homebrew** | `~/.config/homebrew/Brewfile` | Package manifest, with `OS.mac?` / `OS.linux?` guards. |
-| **apt** | `~/.config/packages/debian.txt` | Linux system packages. |
+| **apt** | `~/.config/packages/debian.txt` | Debian/Ubuntu system packages. |
+| **pacman** | `~/.config/packages/arch.txt` | Arch packages. Long, because Arch uses no Homebrew. |
+| **AUR** | `~/.config/packages/arch-aur.txt` | The two tools with no official Arch package. |
 
 Colour scheme is **Catppuccin Mocha** throughout. Fonts are **VictorMono Nerd
 Font** (terminal) and **JetBrainsMono Nerd Font** (Zed) — both are hard
@@ -75,7 +77,8 @@ chezmoi apply --verbose
 | macOS 14+ on Apple Silicon | primary, developed here |
 | macOS on Intel | supported — the brew prefix is probed, not hardcoded |
 | Ubuntu 24.04 / 22.04, Debian 12+ | supported, CI-tested in containers on every push |
-| Arch, Fedora, others | **not supported.** The apt path is Debian-only; the shell config itself is portable. |
+| Arch, and Arch-based (Manjaro, EndeavourOS, CachyOS) | supported, CI-tested in containers on every push |
+| Fedora, openSUSE, others | **not supported.** The package scripts know apt and pacman only; the shell config itself is portable. |
 | Windows | no |
 
 ---
@@ -84,12 +87,16 @@ chezmoi apply --verbose
 
 In order, and safe to re-run:
 
-1. **`run_once_before_00`** — installs Homebrew (macOS), or `build-essential`,
-   `curl`, `git`, `zsh` plus Homebrew-on-Linux (Debian). First, because chezmoi's
+1. **`run_once_before_00`** — installs Homebrew (macOS); `build-essential`,
+   `curl`, `git`, `zsh` plus Homebrew-on-Linux (Debian); or `base-devel` and the
+   same basics plus the `paru` AUR helper (Arch). First, because chezmoi's
    git-repo externals need `git`.
-2. **`run_onchange_before_10`** — `brew bundle` from the Brewfile.
-3. **`run_onchange_before_11`** — apt packages, and Ghostty from the
-   `mkasberg/ghostty-ubuntu` PPA (Linux only).
+2. **`run_onchange_before_10`** — `brew bundle` from the Brewfile. A no-op on
+   Arch, which has no Homebrew.
+3. **`run_onchange_before_11`** — distro packages (Linux only): apt from
+   `debian.txt` plus Ghostty from the `mkasberg/ghostty-ubuntu` PPA, or pacman
+   from `arch.txt` plus paru from `arch-aur.txt`. Ghostty is in `extra` on Arch,
+   so it is just another package there.
 4. **Files and symlinks** are written.
 5. **Externals** are fetched: tpm, catppuccin, three zsh plugins, and Nerd Fonts
    on Linux.
@@ -105,6 +112,12 @@ In order, and safe to re-run:
 Homebrew on Linux is a top-up only, for CLI tools whose apt versions are too old
 or renamed — Ubuntu 24.04 ships Neovim 0.9.x against this config's 0.12
 requirement, and Debian installs `bat` as `batcat` and `fd` as `fdfind`.
+
+**Arch installs no Homebrew at all.** Neither reason applies: `extra` has Neovim
+0.12.x, and Arch does not rename binaries. So pacman owns everything Homebrew
+owns elsewhere, which is why `arch.txt` is long where `debian.txt` is short.
+Only `gitmux` and `nerdfetch` need the AUR; that step is skipped when `paru` is
+missing and a failed build warns rather than aborting the bootstrap.
 
 ---
 
@@ -125,7 +138,7 @@ requirement, and Debian installs `bat` as `batcat` and `fd` as `fdfind`.
 │       ├── tmux/  ghostty/  kitty/  zed/  git/  mise/
 │       ├── starship.toml
 │       ├── homebrew/Brewfile
-│       └── packages/debian.txt
+│       └── packages/{debian,arch,arch-aur}.txt
 ├── nvim/                    ← OUTSIDE home/, on purpose. See below.
 ├── test/                    Docker harness
 ├── .github/workflows/ci.yml
@@ -155,6 +168,7 @@ make status         # which managed files have drifted
 make doctor         # is this machine's install still intact?
 make lint           # shellcheck + shfmt + zsh -n + stylua
 make test           # full bootstrap in a clean container, twice
+make test DISTRO=arch  # same, on Arch
 ```
 
 **Editing config.** Almost everything is a live symlink into this repo, so open
@@ -277,7 +291,15 @@ so that path was renamed to `.bak`. Restoring it would override this config.
 ### zsh
 
 Fragments load in ASCII order from `~/.config/zsh/conf.d/`. `70-darwin.zsh` and
-`75-linux.zsh` self-guard on `$OSTYPE`. Never put `set -e` in any of them — an
+`75-linux.zsh` self-guard on `$OSTYPE`. Inside `75-linux.zsh` the package
+shorthands self-guard again on the package manager: `apti`/`aptu`/`apts` where
+apt exists, `paci`/`pacu`/`pacs` where pacman does (`pacs`, not `ps` — that is
+procps).
+
+**Obsidian.** nvim reads `$OBSIDIAN_VAULT` to find the vault, because `nvim/`
+sits outside the chezmoi source state and cannot be templated per machine. Set
+it in `~/.config/zsh/local.zsh` if the vault is not at one of
+`~/Documents/Obsidian`, `~/Obsidian`, `~/Notes` or the iCloud path. Never put `set -e` in any of them — an
 error would abort shell startup and lock you out of your terminal.
 
 ---

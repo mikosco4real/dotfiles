@@ -4,7 +4,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Repository purpose
 
-Personal dotfiles for **macOS and Debian/Ubuntu**, managed with **chezmoi**.
+Personal dotfiles for **macOS, Debian/Ubuntu and Arch**, managed with **chezmoi**.
 There is no build step. Most files are symlinked into `$HOME`, so editing them
 takes effect immediately; the exceptions are listed under *Symlink mode* below.
 
@@ -153,6 +153,45 @@ duplicating it — keep that return value if you edit the file.
 
 Side-by-side testing: `NVIM_APPNAME=nvim-test nvim`.
 
+### Which LSP owns which filetype
+
+**The statusline lies.** `nvchad/stl/utils.lua:119` returns on the *first*
+attached client, so `LSP ~ x` means "x won the race", not "x is the only one".
+Always check with:
+
+```vim
+:lua =vim.tbl_map(function(c) return c.name end, vim.lsp.get_clients({bufnr=0}))
+```
+
+That is what made markdown look like it was owned by `ltex`. Two rules came out
+of fixing it:
+
+- **Scope any server whose default `filetypes` list is wide.** `ltex` claimed 16
+  filetypes (including `gitcommit`, `text`, `html`) on a `.git` root marker; it
+  is gone, replaced by `harper_ls` pinned to `markdown` + `gitcommit`.
+  `tailwindcss` claims ~50 filetypes *and* falls back to `.git`
+  (`lsp/tailwindcss.lua:143`, for Tailwind v4), so it is filtered down to exclude
+  `markdown`/`mdx`. `vim.lsp.config` **replaces** list values rather than merging
+  them, so a `filetypes` override is authoritative.
+- **Markdown ownership:** `obsidian-ls` inside a vault, `markdown_oxide` outside
+  it, `harper_ls` in both. The vault test is the presence of a `.obsidian/`
+  directory — never a hardcoded path.
+
+`nvim/` is outside the chezmoi source state, so nothing here can be templated
+per machine. The Obsidian vault path therefore comes from `$OBSIDIAN_VAULT`
+(set in `~/.config/zsh/local.zsh`) with a fallback list; see
+`lua/configs/obsidian.lua`.
+
+Exactly one plugin may render markdown — `render-markdown.nvim` owns it and
+obsidian.nvim's own `ui` is disabled. Do not add markview.nvim or headlines.nvim.
+render-markdown manages `conceallevel` itself, so do not set it globally.
+
+Deprecations: run `:checkhealth vim.deprecated`, which prints a full traceback
+per call site. `client.request(...)` and friends are removed in **nvim 0.13**;
+the dot-form only warns when the first argument is not the client itself, so
+`local f = client.request; f(client, ...)` is already safe. tailwind-tools.nvim
+was dropped over exactly this — it was abandoned upstream with no fix possible.
+
 ### Lua formatting
 
 `nvim/.stylua.toml`: 4-space indent, 120 columns, `AutoPreferDouble` quotes,
@@ -281,12 +320,46 @@ root marker, so it stays dormant until a project carries a
   not targets. Validate with `ghostty +validate-config`.
 - **kitty** — fallback only. Keep it working.
 - **starship**, **zed**, **git**, **mise**, **homebrew/Brewfile**,
-  **packages/debian.txt** — see the README table.
+  **packages/{debian,arch,arch-aur}.txt** — see the README table.
 
 The Brewfile is **hand-maintained**. Never run `brew bundle dump` over it: it is
 platform-unaware and strips the `OS.mac?` / `OS.linux?` guards
 (homebrew/brew#22417). Also note `brew bundle --no-lock` was removed in Homebrew
 6.x and now makes brew print its usage and exit non-zero.
+
+## Distro support
+
+There is **no distro detection in the template layer** — every template branch is
+`.chezmoi.os` (`linux` vs `darwin`). Distro is detected at **runtime in shell**,
+`command -v pacman` then `command -v apt-get`, in
+`run_once_before_00-bootstrap-pkg-manager` and
+`run_onchange_before_11-packages-linux`.
+
+That is deliberate. Adding a `[data]` key to `.chezmoi.toml.tmpl` would leave it
+unset on every existing machine, because `~/.config/chezmoi/chezmoi.toml` is
+written once at `chezmoi init` and not regenerated on apply.
+
+**Arch installs no Homebrew.** Both reasons Debian needs it fail there: `extra`
+has nvim 0.12.x (Ubuntu 24.04 is on 0.9.x) and Arch does not rename binaries.
+So `arch.txt` is long where `debian.txt` is short, and only `gitmux` and
+`nerdfetch` need the AUR via `paru`.
+
+Traps, each hit for real:
+
+- `redis` does not exist on Arch — it is `valkey` since the 2024 licence change.
+- `goreleaser` and `openapi-generator` are in `extra`, **not** the AUR.
+- `makepkg` refuses to run as root and exits non-zero, which under `set -e`
+  would abort the whole bootstrap. The paru step is gated on not-CI **and**
+  not-root **and** not-already-installed.
+- pacman 7 downloads inside a seccomp sandbox as the `alpm` user. Arch publishes
+  no arm64 image, so on Apple Silicon the container is emulated and every sync
+  fails with `error restricting syscalls via seccomp: 22`. `test/Dockerfile.arch`
+  sets `DisableSandbox`; `test/run.sh` adds `--platform linux/amd64` on arm64.
+- `arch.txt` has an `@ci-skip-below` marker. Under `$CI` the script stops there,
+  installing only the 13 bootstrap-critical packages instead of pulling
+  gigabytes. Keep the marker on its own line.
+- Package *names* cannot be checked from macOS. Validate against a real
+  container: `pacman -Si <pkg> --disable-sandbox`.
 
 ## Provisioning scripts
 
@@ -311,6 +384,7 @@ Reset `run_once_` state with `chezmoi state delete-bucket --bucket=scriptState`.
 make lint      # shellcheck + shfmt on rendered templates, zsh -n, stylua advisory
 make doctor    # this machine: drift, detached symlinks, missing tools
 make test      # full bootstrap in a clean ubuntu:24.04 container, run TWICE
+make test DISTRO=arch   # same, against archlinux:base
 chezmoi diff   # before any apply
 ```
 
