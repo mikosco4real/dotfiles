@@ -12,6 +12,7 @@ wk.add({
     { "<leader>f", group = "find / format" },
     { "<leader>g", group = "git" },
     { "<leader>h", group = "git hunk", mode = { "n", "v" } },
+    { "<leader>o", group = "obsidian / notes" },
     { "<leader>t", group = "toggle / terminal" },
     { "<leader>w", group = "workspace / which-key" },
     { "[", group = "prev" },

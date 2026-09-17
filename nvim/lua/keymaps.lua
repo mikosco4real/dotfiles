@@ -164,3 +164,21 @@ end, { desc = "whichkey query lookup" })
 -- ── Personal overrides ──────────────────────────────────────────────
 map("n", ";", ":", { desc = "CMD enter command mode" })
 map("i", "jk", "<ESC>")
+
+-- ── Obsidian / notes (<leader>o) ────────────────────────────────────
+-- obsidian.nvim registers as an LSP over the vault, so gd / gr / grn work on
+-- wikilinks and block refs without extra mappings. These cover the rest.
+map("n", "<leader>oo", "<cmd>Obsidian quick_switch<CR>", { desc = "obsidian quick switch" })
+map("n", "<leader>ot", "<cmd>Obsidian today<CR>", { desc = "obsidian today's note" })
+map("n", "<leader>oy", "<cmd>Obsidian yesterday<CR>", { desc = "obsidian yesterday" })
+map("n", "<leader>om", "<cmd>Obsidian tomorrow<CR>", { desc = "obsidian tomorrow" })
+map("n", "<leader>os", "<cmd>Obsidian search<CR>", { desc = "obsidian search notes" })
+map("n", "<leader>ob", "<cmd>Obsidian backlinks<CR>", { desc = "obsidian backlinks" })
+map("n", "<leader>og", "<cmd>Obsidian tags<CR>", { desc = "obsidian tags" })
+map("n", "<leader>on", "<cmd>Obsidian new<CR>", { desc = "obsidian new note" })
+map("n", "<leader>oT", "<cmd>Obsidian template<CR>", { desc = "obsidian insert template" })
+map("n", "<leader>op", "<cmd>Obsidian paste_img<CR>", { desc = "obsidian paste image" })
+map("n", "<leader>ow", "<cmd>Obsidian workspace<CR>", { desc = "obsidian switch workspace" })
+-- <CR> follows links / toggles checkboxes contextually in a vault buffer.
+map("n", "<leader>oc", "<cmd>Obsidian toggle_checkbox<CR>", { desc = "obsidian toggle checkbox" })
+map("v", "<leader>oe", ":Obsidian extract_note<CR>", { desc = "obsidian extract to new note", silent = true })

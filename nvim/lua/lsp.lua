@@ -123,6 +123,21 @@ vim.lsp.config("jsonls", {
     },
 })
 
+-- markdown_oxide and obsidian.nvim's obsidian-ls are both PKM language servers.
+-- Inside the Obsidian vault they duplicate each other (two sets of completions,
+-- two hover sources, two go-to-definition handlers), so obsidian-ls owns the
+-- vault and markdown_oxide handles markdown everywhere else.
+vim.lsp.config("markdown_oxide", {
+    root_dir = function(bufnr, on_dir)
+        local fname = vim.api.nvim_buf_get_name(bufnr)
+        local vault = vim.fn.expand("~/Documents/Obsidian")
+        if fname ~= "" and vim.startswith(vim.fs.normalize(fname), vim.fs.normalize(vault)) then
+            return -- don't attach inside the vault
+        end
+        on_dir(vim.fs.root(bufnr, { ".obsidian", ".moxide.toml", ".git" }) or vim.fn.getcwd())
+    end,
+})
+
 -- harper-ls replaces ltex. ltex is a JVM LanguageTool server that claims 16
 -- filetypes (markdown, gitcommit, text, html, xhtml, tex...) with `.git` as its
 -- only root marker, so it attached to almost everything and shadowed the real

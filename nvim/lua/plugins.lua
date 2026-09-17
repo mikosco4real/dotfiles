@@ -65,4 +65,19 @@ vim.pack.add({
 
     -- ── Formatter ───────────────────────────────────────────────────────
     { src = "https://github.com/stevearc/conform.nvim" },
+
+    -- ── Notes / PKM ─────────────────────────────────────────────────────
+    -- The community fork, NOT epwalsh/obsidian.nvim — that one's last release
+    -- was v3.9.0 (Jul 2024) and it was never archived despite issue #852 asking.
+    -- The fork is LSP-based and documents vim.pack as an install method.
+    -- version = range "*" tracks the latest *release* rather than HEAD.
+    {
+        src = "https://github.com/obsidian-nvim/obsidian.nvim",
+        version = vim.version.range("*"),
+    },
+    -- Renders callouts / checkboxes / tables inline. NOTE: obsidian.nvim ships
+    -- its own UI that clashes with this, so configs/obsidian.lua sets
+    -- ui = { enabled = false }. Do not add markview.nvim or headlines.nvim too —
+    -- exactly one renderer may own the display.
+    { src = "https://github.com/MeanderingProgrammer/render-markdown.nvim" },
 })
