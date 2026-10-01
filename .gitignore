@@ -8,3 +8,17 @@ lazy-lock.json
 .DS_Store
 
 
+
+# Omarchy migrations drop LazyVim-shaped files into ~/.config/nvim, which is a
+# chezmoi symlink to nvim/ in this repo — so they land HERE. Example:
+# /usr/share/omarchy/migrations/1781587663.sh does
+#   install -m 0644 .../remote_clipboard.lua "$HOME/.config/nvim/lua/config/..."
+# guarded only by [[ -d $nvim_config_dir ]], which is TRUE through the symlink.
+#
+# This config has no lua/config/ at all (its files are lua/options.lua etc), and
+# `install` is used without -D, so that copy currently FAILS rather than
+# succeeding into the repo. Do not create nvim/lua/config/ — not even a
+# .gitkeep. Its absence is the real guard; this rule is the backstop, and only
+# covers NEW files. For writes through the symlink into files that are already
+# tracked, see the post-update hook in .chezmoiscripts/assets/.
+nvim/lua/config/

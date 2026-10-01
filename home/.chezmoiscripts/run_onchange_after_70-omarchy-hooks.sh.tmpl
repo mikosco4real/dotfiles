@@ -1,0 +1,89 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/usr/bin/env bash
+# Install the chezmoi drift guard into Omarchy's post-update hook directory.
+#
+# Why a hook at all. Omarchy owns several of the same ~/.config paths this repo
+# manages, and it rewrites them during `omarchy update` — via migrations and via
+# omarchy-refresh-config. That command does:
+#
+#   if [[ -f $user_config_file ]]; then cp -f "$default" "$user_config_file"
+#
+# `-f` is TRUE for a symlink to a regular file, and `cp -f` FOLLOWS the symlink.
+# With chezmoi in symlink mode that rewrites the contents of tracked files inside
+# this git worktree. `chezmoi apply` cannot see it — the symlink is still
+# correct, only the target's bytes changed — so the repair has to be git, not
+# chezmoi. Hence a hook that runs right after migrations and reverts the damage.
+#
+# The hook body is embedded here as a heredoc rather than kept as a separate
+# asset file. run_onchange_ hashes this script's rendered content, so editing the
+# hook below automatically reinstalls it; an external asset would need its hash
+# threaded in by hand. It also keeps the hook out of .chezmoiscripts/, where
+# every entry must carry a run_ prefix.
+#
+# Installed with `install -Dm755` and NOT managed by chezmoi directly: chezmoi
+# folds a fully-managed directory into a single symlink, and post-update.d also
+# holds Omarchy's own install-voxtype.hook, setup-agent.hook and
+# setup-fingerprint.hook, which that would hide.
+set -euo pipefail
+
+HOOK_DIR="$HOME/.config/omarchy/hooks/post-update.d"
+[[ -d "$HOME/.config/omarchy/hooks" ]] || { echo "not an Omarchy system; skipping"; exit 0; }
+
+install -d "$HOOK_DIR"
+cat > "$HOOK_DIR/10-chezmoi-guard.hook" <<'HOOK'
+#!/bin/bash
+# Undo anything `omarchy update` wrote THROUGH a chezmoi symlink into the
+# dotfiles worktree. Installed by run_onchange_after_70-omarchy-hooks.sh.
+#
+# Runs from omarchy-hook post-update, immediately after omarchy-update-system-pkgs
+# and omarchy-migrate. omarchy-hook already tolerates failure (`bash "$hook" ||
+# echo "Hook failed"`), but deliberately NO `set -e` here: a guard that aborts a
+# system update is worse than the drift it is guarding against.
+set -uo pipefail
+
+CM=$(command -v chezmoi 2>/dev/null) || CM="$HOME/bin/chezmoi"
+[[ -x $CM ]] || exit 0
+WT=$("$CM" source-path 2>/dev/null) || exit 0
+WT=$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null) || exit 0
+
+STATE="$HOME/.local/state/omarchy/chezmoi-guard"
+mkdir -p "$STATE"
+STAMP=$(date +%Y%m%d-%H%M%S)
+
+# Scoped on purpose. These are the only paths reachable through a managed
+# symlink from omarchy-refresh-config, omarchy-refresh-tmux or a migration.
+# Scoping is what keeps this from discarding unrelated work in progress
+# elsewhere in the repo.
+GUARD=(nvim home/dot_config/kitty home/dot_config/tmux home/dot_config/ghostty)
+
+if ! git -C "$WT" diff --quiet -- "${GUARD[@]}"; then
+  git -C "$WT" diff -- "${GUARD[@]}" > "$STATE/drift-$STAMP.patch"
+  printf '\033[33mOmarchy wrote into the dotfiles repo. Reverting.\033[0m\n'
+  git -C "$WT" --no-pager diff --stat -- "${GUARD[@]}"
+  printf 'Saved: %s\n' "$STATE/drift-$STAMP.patch"
+  git -C "$WT" checkout -- "${GUARD[@]}"
+fi
+
+# Untracked files a migration dropped in. --exclude-standard honours .gitignore,
+# so nvim's own lock files (nvim-pack-lock.json, lazy-lock.json) are left alone.
+UNTRACKED=$(git -C "$WT" ls-files --others --exclude-standard -- "${GUARD[@]}")
+if [[ -n $UNTRACKED ]]; then
+  printf '\033[33mOmarchy added untracked files to the dotfiles repo:\033[0m\n'
+  printf '%s\n' "$UNTRACKED" | sed 's/^/  /'
+  # shellcheck disable=SC2086
+  tar -C "$WT" -czf "$STATE/untracked-$STAMP.tar.gz" $UNTRACKED 2>/dev/null
+  git -C "$WT" clean -fd -- "${GUARD[@]}"
+fi
+
+# omarchy-refresh-config leaves ~/.config/<x>.bak.<epoch> beside what it replaced.
+find "$HOME/.config" -maxdepth 3 -name '*.bak.[0-9]*' -mmin -1440 \
+  -exec mv -t "$STATE" {} + 2>/dev/null
+
+# Finally re-materialise anything replaced by a regular file.
+# --exclude=scripts is load-bearing: never re-run pacman inside `omarchy update`.
+"$CM" apply --exclude=scripts || true
+HOOK
+
+chmod 755 "$HOOK_DIR/10-chezmoi-guard.hook"
+echo "installed $HOOK_DIR/10-chezmoi-guard.hook"
+{{ end -}}

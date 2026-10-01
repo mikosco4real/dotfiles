@@ -61,7 +61,13 @@ fontconfig
 # ─── Core CLI ─────────────────────────────────────────────────────────────────
 chezmoi
 starship
-mise
+# mise: deliberately NOT listed. Omarchy ships `mise-bin` from its own repo,
+# which `Provides: mise` and `Conflicts With: mise`. Adding extra/mise here made
+# `pacman -S --needed --noconfirm` hit an unresolvable conflict — --noconfirm
+# answers N to "Remove mise-bin?" — which aborted the whole apply before a
+# single file was written. extra/mise is also the OLDER of the two, so letting
+# it win would be a downgrade. run_once_after_20-install-mise.sh already no-ops
+# when mise is on PATH, so nothing is lost by omitting it.
 neovim
 tree-sitter-cli
 tmux

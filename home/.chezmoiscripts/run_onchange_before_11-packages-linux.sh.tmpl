@@ -52,14 +52,34 @@ if command -v pacman >/dev/null 2>&1; then
     PKGS=${PKGS//ghostty/}
   fi
 
+  # Drop anything already satisfied BEFORE handing the list to pacman. `pacman -T`
+  # ("test") resolves `provides`, not just package names, which --needed does not:
+  # --needed compares literal names, so a package that is already provided under a
+  # different name is still a target, and if that provider declares a conflict the
+  # transaction becomes unresolvable. Under --noconfirm pacman answers N to the
+  # "Remove <provider>?" prompt and exits 1, which aborts the entire apply before
+  # any file is written. That is exactly how the 2026-09-23 run died, on
+  # extra/mise vs Omarchy's mise-bin. mise is gone from arch.txt now, but this
+  # filter is what stops the next *-bin repackaging from doing it again.
+  #
+  # `|| echo` and not `&& :` — pacman -T exits 1 for packages that are NOT
+  # installed, which is the case we want to keep.
+  if [[ -n "${PKGS// /}" ]]; then
+    # shellcheck disable=SC2086
+    PKGS=$(for p in $PKGS; do pacman -T "$p" >/dev/null 2>&1 || echo "$p"; done | tr '\n' ' ')
+  fi
+
   if [[ -z "${PKGS// /}" ]]; then
-    log "no packages listed in $PKGLIST; nothing to do"
+    log "nothing to install from $PKGLIST; all targets already satisfied"
   else
     log "pacman -S: $PKGS"
-    # --needed skips anything already installed, which is what makes a second
-    # apply a no-op rather than a reinstall.
+    # -S, not -Sy: run_once_before_00-bootstrap-pkg-manager.sh already refreshed
+    # the databases earlier in this same apply. A second -Sy here would be a
+    # partial-upgrade pattern (new databases, selective installs) against a long
+    # package list, which is the documented way to break an Arch system.
+    # --needed is kept as a cheap second guard on top of the pacman -T filter.
     # shellcheck disable=SC2086
-    $SUDO pacman -Sy --needed --noconfirm $PKGS
+    $SUDO pacman -S --needed --noconfirm $PKGS
   fi
 
   # ── AUR ─────────────────────────────────────────────────────────────────────

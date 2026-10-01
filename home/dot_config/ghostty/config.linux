@@ -30,3 +30,27 @@ keybind = alt+9=goto_tab:9
 # Optional: colour the GTK titlebar from the terminal background. Linux-only
 # value, and a good pairing with Catppuccin.
 # window-theme = ghostty
+
+# ─── Omarchy integration ──────────────────────────────────────────────────────
+# Omarchy's stock ~/.config/ghostty/config opens with
+#   config-file = ?"~/.local/state/omarchy/current/theme/ghostty.conf"
+# which is how `omarchy theme set` / Super+Ctrl+Shift+Space re-colour the
+# terminal. This repo's config replaces that file wholesale and hardcodes
+# `theme = Catppuccin Mocha`, so without the line below Omarchy would re-theme
+# Hyprland, the bar, btop and nvim and leave the terminal stranded on Mocha.
+#
+# Placement matters. config-file directives are processed at the END of the
+# containing file and the included file loads after it, so this — included from
+# the bottom of `config` via `config-file = ?config.linux` — lands after the
+# `theme =` line and wins. Drop it to pin the terminal to Mocha permanently.
+# The `?` prefix means "optional": no theme set yet is not an error.
+config-file = ?~/.local/state/omarchy/current/theme/ghostty.conf
+
+# Omarchy ships this as a documented workaround for Ghostty being sluggish under
+# Hyprland: https://github.com/ghostty-org/ghostty/discussions/3224
+async-backend = epoll
+
+# Omarchy binds these system-wide; keep them so copy/paste is consistent with
+# every other Omarchy terminal.
+keybind = shift+insert=paste_from_clipboard
+keybind = control+insert=copy_to_clipboard
