@@ -12,6 +12,15 @@
 # automatically whenever this file changes.
 
 [tools]
+# Omarchy's agent setup writes claude/codex/gh into this file and resolves all
+# three through mise — `command -v claude` points at
+# ~/.local/share/mise/installs/claude/latest/claude. They are kept here so a
+# chezmoi apply does not pull them out of PATH on an Omarchy machine. They are
+# harmless elsewhere: mise just installs three extra CLIs.
+claude = "latest"
+codex  = "latest"
+gh     = "latest"
+
 node   = "lts"
 python = "3.13"
 bun    = "latest"
@@ -30,3 +39,9 @@ bun    = "latest"
 [settings]
 # Don't silently run arbitrary code from a project's mise.toml.
 trusted_config_paths = ["~/.config/mise"]
+
+[settings.upgrade]
+# Carried over from Omarchy's version of this file. Without it, `mise upgrade`
+# removes the old version of a tool as soon as the new one is in place, which
+# leaves nothing to roll back to when an upgrade goes wrong.
+auto_prune = false
