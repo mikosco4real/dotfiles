@@ -95,3 +95,33 @@
 [includeIf "hasconfig:remote.*.url:https://bitbucket.org/{{ .workOrg }}/**"]
 	path = ~/.config/git/config.work
 {{- end }}
+
+{{/*
+   GitHub credentials via the gh CLI.
+
+   `gh auth setup-git` writes exactly this block into ~/.gitconfig — but that
+   file is managed here, so the next `chezmoi apply` would delete it and the
+   next push would fail with "could not read Username for https://github.com".
+   Keeping it in the source is what makes it survive.
+
+   Two deliberate differences from what setup-git generates:
+
+   1. Bare `gh`, not the absolute path. setup-git hardcodes the resolved binary,
+      which on a mise-managed machine is a VERSION-PINNED path like
+      ~/.local/share/mise/installs/gh/2.101.0/gh_.../bin/gh. That breaks the
+      moment mise upgrades gh. Resolving through PATH has no such problem.
+
+   2. The empty `helper =` line is kept. It is not noise: git ACCUMULATES
+      credential helpers, and an empty value resets the list, so a helper
+      inherited from /etc/gitconfig or a system keyring cannot shadow gh.
+
+   Only applies to github.com and gist.github.com, so other hosts keep whatever
+   helper they already use. Harmless when gh is absent — git falls through to
+   its normal prompting.
+*/}}
+[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !gh auth git-credential
