@@ -40,7 +40,6 @@
 # chsh for no real gain. On Linux both come from apt (see packages/debian.txt).
 brew "chezmoi"
 brew "starship"
-brew "mise"                  # replaces nvm + pyenv; see dot_config/mise/config.toml
 
 # Editor. Needs >= 0.12 for vim.pack, which this nvim config depends on.
 brew "neovim"
