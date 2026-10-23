@@ -143,6 +143,7 @@ if OS.mac?
   cask "zen"                 # formerly "zen-browser"; brew renamed it
   cask "session-manager-plugin"
   cask "android-commandlinetools"
+  cask "orbstack"            # docker runtime; `make test` needs it
 end
 
 # ══════════════════════════════════════════════════════════════════════════════
