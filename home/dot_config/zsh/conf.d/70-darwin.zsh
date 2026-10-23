@@ -2,15 +2,8 @@
 # file is safe to source unconditionally from .zshrc.
 [[ "$OSTYPE" == darwin* ]] || return 0
 
-# ─── Homebrew PHP ─────────────────────────────────────────────────────────────
-# Prepended BEFORE Herd below, so Herd ends up ahead of it on PATH. Guarded on
-# HOMEBREW_PREFIX rather than the old hardcoded /opt/homebrew, so this also
-# works on Intel Macs. Mostly vestigial — Herd shadows it — but kept for
-# brew-php-switcher.
-if [[ -n "$HOMEBREW_PREFIX" ]]; then
-  _path_prepend "$HOMEBREW_PREFIX/opt/php@8.2/sbin"
-  _path_prepend "$HOMEBREW_PREFIX/opt/php@8.2/bin"
-fi
+# Homebrew's php@8.2 is added in conf.d/05-path.zsh, before mise activates, so
+# it doesn't sit ahead of mise's tool paths (mise doctor warns about that).
 
 # ─── Laravel Herd ─────────────────────────────────────────────────────────────
 # Herd is a macOS GUI app, so this whole block is macOS-only by nature.
