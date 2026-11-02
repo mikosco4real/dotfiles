@@ -73,6 +73,13 @@ alias czcd='cd $(chezmoi source-path)'
 alias czap='chezmoi apply --verbose'
 alias czd='chezmoi diff'
 
+# ─── Claude Code ──────────────────────────────────────────────────────────────
+# Whole-session orchestrator: ~/.claude/agents/orchestrator.md, which loads the
+# `orchestrate` skill. Use /orchestrate <task> for one task in a normal session.
+if (( $+commands[claude] )); then
+  alias cco='claude --agent orchestrator'
+fi
+
 # ─── misc ─────────────────────────────────────────────────────────────────────
 alias v='nvim'
 alias reload='exec zsh'
