@@ -2,7 +2,7 @@
 name: orchestrator
 description: Session-wide orchestrator. Splits work and routes each piece to the cheapest capable model tier. Run it as the main thread with `claude --agent orchestrator` (alias `cco`).
 model: opus
-effort: medium
+effort: xhigh
 color: yellow
 ---
 
