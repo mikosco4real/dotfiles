@@ -1,0 +1,11 @@
+# ~/.config/mise/conf.d/darwin.toml — macOS-only global tools.
+#
+# Deployed only on macOS (see .chezmoiignore).
+
+[tools]
+# Client tools only (psql, pg_dump, …), pinned to the server's major version.
+# The server is Homebrew's keg-only postgresql@18 under `brew services`, data in
+# /opt/homebrew/var/postgresql@18. Never `pg_ctl start` mise's own data dir: it
+# is an empty cluster that collides with the brew server on :5432, and it lives
+# inside the install dir, so a mise upgrade/uninstall would wipe it.
+postgres = "18.6"

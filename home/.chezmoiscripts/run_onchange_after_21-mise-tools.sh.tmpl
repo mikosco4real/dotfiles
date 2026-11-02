@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Install the runtimes declared in dot_config/mise/config.toml.
+# Install the runtimes declared in dot_config/mise/config.toml and the
+# OS-specific dot_config/mise/conf.d/*.toml files.
 #
 # mise config hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
+# linux.toml hash:  {{ include "dot_config/mise/conf.d/linux.toml" | sha256sum }}
+# darwin.toml hash: {{ include "dot_config/mise/conf.d/darwin.toml" | sha256sum }}
 set -euo pipefail
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }

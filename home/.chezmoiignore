@@ -20,12 +20,17 @@
 {{- if ne .chezmoi.os "darwin" }}
 {{/* macOS-only Ghostty overrides */}}
 .config/ghostty/config.darwin
+{{/* macOS-only mise tools (postgres clients matching the brew server) */}}
+.config/mise/conf.d/darwin.toml
 {{- end }}
 
 {{- if ne .chezmoi.os "linux" }}
 {{/* Linux-only Ghostty overrides, and fonts that macOS gets from brew casks */}}
 .config/ghostty/config.linux
 .local/share/fonts/**
+{{/* Omarchy's claude/codex/gh via mise; on macOS they would shadow the
+     native claude and brew's gh on PATH */}}
+.config/mise/conf.d/linux.toml
 {{- end }}
 
 {{- if not .gui }}

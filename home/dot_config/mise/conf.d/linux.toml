@@ -1,0 +1,17 @@
+# ~/.config/mise/conf.d/linux.toml — Linux-only global tools.
+#
+# Deployed only on Linux (see .chezmoiignore).
+#
+# Omarchy's agent setup writes claude/codex/gh into its global mise config and
+# resolves all three through mise — `command -v claude` points at
+# ~/.local/share/mise/installs/claude/latest/claude. They are kept here so a
+# chezmoi apply does not pull them out of PATH on an Omarchy machine.
+#
+# They are not harmless on macOS, which is why this file is Linux-only: mise
+# activate puts its install dirs ahead of the rest of PATH, so mise's copies
+# would shadow the native, self-updating ~/.local/bin/claude and brew's gh.
+
+[tools]
+claude = "latest"
+codex  = "latest"
+gh     = "latest"
