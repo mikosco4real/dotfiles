@@ -26,6 +26,7 @@ Nothing in this repo is machine-specific. Identity and secrets are supplied at
 | **apt** | `~/.config/packages/debian.txt` | Debian/Ubuntu system packages. |
 | **pacman** | `~/.config/packages/arch.txt` | Arch packages. Long, because Arch uses no Homebrew. |
 | **AUR** | `~/.config/packages/arch-aur.txt` | The two tools with no official Arch package. |
+| **Claude Code** | `~/.claude/agents/`, `~/.claude/skills/orchestrate/` | Orchestrator that sends each subtask to the cheapest model that can do it (Haiku, Sonnet, Opus, Fable). `/orchestrate <task>` in any session, or `cco` for a whole orchestrator session. |
 
 Colour scheme is **Catppuccin Mocha** throughout. Fonts are **VictorMono Nerd
 Font** (terminal) and **JetBrainsMono Nerd Font** (Zed) — both are hard

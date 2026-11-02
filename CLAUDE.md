@@ -319,6 +319,16 @@ root marker, so it stays dormant until a project carries a
   `Catppuccin Mocha`, not `catppuccin-mocha`. `adjust-*` values are **deltas**,
   not targets. Validate with `ghostty +validate-config`.
 - **kitty** — fallback only. Keep it working.
+- **Claude Code** — only `~/.claude/agents/*.md` and
+  `~/.claude/skills/orchestrate/SKILL.md` are managed, as live symlinks. The
+  routing rules live **only** in `SKILL.md`; `agents/orchestrator.md` (run by
+  `cco` = `claude --agent orchestrator`) just tells the session to load that
+  skill, so don't copy the rules into it. Worker tiers are pinned by the
+  `model:` and `effort:` frontmatter: `scout-haiku`, `worker-sonnet`,
+  `worker-opus`, `worker-fable`. `~/.claude/settings.json` is **deliberately
+  unmanaged**: Claude Code rewrites it, and it holds per-repo `autoMode` context
+  that must not reach this repo. Credentials, history and plugins are never
+  managed.
 - **starship**, **zed**, **git**, **mise**, **homebrew/Brewfile**,
   **packages/{debian,arch,arch-aur}.txt** — see the README table.
 
