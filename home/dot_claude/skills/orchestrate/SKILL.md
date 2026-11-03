@@ -38,6 +38,9 @@ If you are unsure between two tiers, take the lower one.
 
 ## 3. Process
 
+0. **Tracked work.** If the request names a bead (`w-…`/`p-…`), mentions the hub, or
+   is a dispatch-mode run, or you are about to dispatch workers on work worth recording,
+   load the `hub` skill. It covers claiming, the `Bead:` line, closing, and follow-ups.
 1. **Scout only if needed.** If splitting the work needs more than 2–3 file reads, send
    `scout-haiku` to map it instead of reading yourself. Ask for paths and line numbers,
    not contents.
@@ -72,6 +75,7 @@ A worker knows only what you write. Keep the brief short and exact:
 
 ```
 Goal: <one sentence: what done looks like>
+Bead: <id, only when the work is tracked in the hub>
 Files: <exact paths, with line numbers from the scout where you have them>
 Already known / ruled out: <so it doesn't redo your work>
 Constraints: <conventions, things not to touch>

@@ -27,6 +27,7 @@ Changed: <files, or "none">
 Verified: <command run and its result, or why it couldn't run>
 Decision: <the approach chosen, and why over the alternatives, in 2–3 lines>
 Notes: <up to 5 bullets: risks, follow-ups, anything left open>
+Discovered: <follow-up work you noticed outside this brief, one per line, or "none">
 ```
 
 Don't paste file contents or diffs into the report. The orchestrator can read the files.

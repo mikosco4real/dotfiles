@@ -27,6 +27,7 @@ Status: done | partial | blocked
 Changed: <files, or "none">
 Verified: <command run and its result, or why it couldn't run>
 Notes: <up to 5 bullets: decisions made, risks, anything left open>
+Discovered: <follow-up work you noticed outside this brief, one per line, or "none">
 ```
 
 Don't paste file contents or diffs into the report. The orchestrator can read the files.
