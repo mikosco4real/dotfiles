@@ -88,6 +88,13 @@ brew "poppler"
 brew "tesseract"
 brew "nerdfetch"
 
+# Agent work tracking — the beads hub (see CLAUDE.md, "beads hub").
+# beads is in homebrew-core (the old tap formula was `bd`). It embeds the Dolt
+# engine, but git-remote push/pull may shell out to the dolt CLI, so dolt is
+# listed explicitly rather than relied on as a transitive dependency.
+brew "beads"
+brew "dolt"
+
 # Cloud / infra
 brew "awscli"
 brew "goreleaser"

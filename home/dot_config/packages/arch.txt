@@ -99,6 +99,11 @@ ffmpeg
 poppler
 tesseract
 
+# ─── Agent work tracking ──────────────────────────────────────────────────────
+# dolt is in `extra` (verified with pacman -Si: 1:2.6.2-1). beads itself is
+# not, so `beads-bin` lives in arch-aur.txt.
+dolt
+
 # ─── Release tooling ──────────────────────────────────────────────────────────
 # Both are in `extra` on Arch, where macOS gets them from Homebrew.
 goreleaser

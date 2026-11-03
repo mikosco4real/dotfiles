@@ -3,7 +3,7 @@
 #
 # Only tools with NO package in core/extra belong here. Everything else goes in
 # arch.txt — the AUR builds from source and is not covered by Arch's own
-# testing, so the smaller this file is, the better. Both entries below were
+# testing, so the smaller this file is, the better. Every entry below was
 # checked against the AUR RPC; goreleaser and openapi-generator started here and
 # moved to arch.txt once they turned out to be in `extra`.
 #
@@ -16,3 +16,8 @@ gitmux
 
 # Fetch/system-info toy used by the shell greeting.
 nerdfetch
+
+# beads (`bd`), the agent work tracker behind ~/hub. Prebuilt binary. The beads
+# docs name `beads-git`, but that package is stale (last updated Feb 2026);
+# `beads-bin` tracks releases (1.3.2-1 when this was added).
+beads-bin
