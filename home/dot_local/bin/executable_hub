@@ -1010,7 +1010,8 @@ hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
   hub dispatch status           runs today, estimated cost, last result
   hub dispatch approve <id>     allow Fable on a bead and lift its human gate
 
-Shell helpers: did "text" (log your own work), todo ["text"] (your to-dos).
+Shell helpers: did [-r owner/name] "text" (log your own work), todo [-r owner/name] ["text"] (your to-dos).
+Without -r they tag the git repo you are in; text starting with - goes after --.
 Overrides: ~/.config/hub/env.local, e.g. HUB_DISPATCH_BUDGET_USD=1
 EOF
 }
