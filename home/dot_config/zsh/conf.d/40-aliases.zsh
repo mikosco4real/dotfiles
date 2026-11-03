@@ -76,8 +76,10 @@ alias czd='chezmoi diff'
 # ─── Claude Code ──────────────────────────────────────────────────────────────
 # Whole-session orchestrator: ~/.claude/agents/orchestrator.md, which loads the
 # `orchestrate` skill. Use /orchestrate <task> for one task in a normal session.
+# BEADS_ACTOR marks hub edits made from this session as Claude's rather than
+# yours (bd otherwise records git user.name). The dispatcher uses agent:dispatch.
 if (( $+commands[claude] )); then
-  alias cco='claude --agent orchestrator'
+  alias cco='BEADS_ACTOR=claude claude --agent orchestrator'
 fi
 
 # ─── misc ─────────────────────────────────────────────────────────────────────

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# bdh — run bd against this machine's beads hub, from any directory.
+#
+# BEADS_DIR is set for THIS process only. Never export it from a shell rc: an
+# exported BEADS_DIR overrides discovery everywhere, so a repo that later gets
+# its own .beads/ would silently read and write the hub instead.
+#
+# Before running, pull the hub at most once every BDH_PULL_MINUTES (default 15)
+# so a machine picks up beads written elsewhere. A failed pull (offline, auth)
+# is not fatal: bd still runs against the local copy. BDH_NO_PULL=1 skips it.
+# Pushes need no help: the hub sets dolt.auto-push in .beads/config.yaml.
+set -euo pipefail
+
+HUB_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/hub/env"
+# shellcheck source=/dev/null
+[[ -r "$HUB_ENV" ]] && source "$HUB_ENV"
+# shellcheck source=/dev/null
+[[ -r "$HUB_ENV.local" ]] && source "$HUB_ENV.local"
+HUB_DIR="${HUB_DIR:-$HOME/hub}"
+
+if [[ ! -d "$HUB_DIR/.beads" ]]; then
+  echo "bdh: no hub at $HUB_DIR. Create one with \`hub init\`, or set hubRemote and run \`chezmoi apply --init\`." >&2
+  exit 1
+fi
+export BEADS_DIR="$HUB_DIR/.beads"
+
+stamp="${XDG_CACHE_HOME:-$HOME/.cache}/hub/last-pull"
+if [[ -z "${BDH_NO_PULL:-}" ]] &&
+  { [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +"${BDH_PULL_MINUTES:-15}" 2> /dev/null)" ]]; }; then
+  mkdir -p "${stamp%/*}"
+  # Touch first, so a slow or failing remote is retried on the next interval
+  # rather than on every single command.
+  touch "$stamp"
+  bd dolt pull > /dev/null 2>&1 || echo "bdh: pull failed; using the local copy" >&2
+fi
+
+exec bd "$@"
