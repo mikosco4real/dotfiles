@@ -27,7 +27,7 @@
 {{- if eq $class "work" -}}
 {{-   $hubDefault = printf "git@github.com:%s/mokolo-hub.git" $workOrg -}}
 {{- end -}}
-{{- $hubRemote     := promptStringOnce . "hubRemote"     "beads hub git remote (blank = no hub)" $hubDefault -}}
+{{- $hubRemote     := promptStringOnce . "hubRemote"     "beads hub git remote (blank for none)" $hubDefault -}}
 {{- $hubDispatcher := promptBoolOnce   . "hubDispatcher" "Run the hub dispatcher on THIS machine? (one per hub)" false -}}
 
 # Symlink dotfiles back into this repo, so editing a deployed file edits the repo
