@@ -27,6 +27,7 @@ HUB_TEMPLATE="${HUB_TEMPLATE:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-templ
 : "${HUB_DISPATCH_HOURS:=08-18}"   # local hours, start inclusive, end exclusive
 : "${HUB_DISPATCH_DAYS:=1-5}"      # ISO weekdays, 1 = Monday
 : "${HUB_REPORT_BUDGET_USD:=0.25}" # per report polish
+: "${HUB_CLOUD_STALE_HOURS:=2}"    # a cloud session with no PR after this is flagged
 
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/hub"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hub"
@@ -577,16 +578,57 @@ cloud_launch() {
   return "$rc"
 }
 
+# "YYYY-MM-DD HH:MM" (local) -> epoch seconds. BSD and GNU date differ.
+epoch_of() {
+  if is_bsd_date; then date -j -f '%F %H:%M' "$1" +%s 2> /dev/null; else date -d "$1" +%s 2> /dev/null; fi
+}
+
+# One row per open or running cloud bead: id, status, minutes since the last
+# launch (empty if unknown), session link, title. Fields are separated by \x1f,
+# not tabs: IFS collapses runs of whitespace, so an empty field would shift
+# every field after it.
+cloud_rows() {
+  local now id status launched session title mins t
+  now=$(date +%s)
+  hbd list -l cloud -n 0 --json 2> /dev/null | jq -r '.[] | [.id, .status,
+      ((.notes // "") | [scan("cloud launched ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2})")] | (last // [""]) | .[0]),
+      ((.notes // "") | [scan("cloud session: (https://[^[:space:]]+)")] | (last // [""]) | .[0]),
+      .title] | join("\u001f")' |
+    while IFS=$'\x1f' read -r id status launched session title; do
+      mins=""
+      if [[ -n "$launched" ]] && t=$(epoch_of "$launched"); then mins=$(((now - t) / 60)); fi
+      printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$id" "$status" "$mins" "$session" "$title"
+    done
+}
+
 cloud_list() {
-  local beads
-  beads=$(hbd list -l cloud -n 0 --json 2> /dev/null || echo '[]')
-  if [[ "$(jq length <<< "$beads")" -eq 0 ]]; then
+  local rows id status mins session title label age any_wait="" any_stale=""
+  rows=$(cloud_rows)
+  if [[ -z "$rows" ]]; then
     log "no cloud beads"
     return 0
   fi
-  jq -r '.[] | (if .status == "in_progress" then "  running   " else "  waiting   " end) + "\(.id)  \(.title)"' <<< "$beads"
-  jq -e 'any(.[]; .status != "in_progress")' <<< "$beads" > /dev/null &&
-    log "launch a waiting one from a terminal: hub cloud <id>"
+  while IFS=$'\x1f' read -r id status mins session title; do
+    if [[ "$status" != "in_progress" ]]; then
+      printf '  waiting   %s  %s\n' "$id" "$title"
+      any_wait=1
+      continue
+    fi
+    label="running"
+    age="age unknown"
+    if [[ -n "$mins" ]]; then
+      age="$((mins / 60))h $((mins % 60))m"
+      if ((mins >= HUB_CLOUD_STALE_HOURS * 60)); then
+        label="STALE"
+        any_stale=1
+      fi
+    fi
+    printf '  %-8s  %s  %s  (%s)\n' "$label" "$id" "$title" "$age"
+    [[ -n "$session" ]] && printf '            %s\n' "$session"
+  done <<< "$rows"
+  [[ -n "$any_wait" ]] && log "launch a waiting one from a terminal: hub cloud <id>"
+  [[ -n "$any_stale" ]] &&
+    log "no PR after ${HUB_CLOUD_STALE_HOURS}h: open the session link. It is usually waiting for an approval, or cannot push to GitHub."
   return 0
 }
 
@@ -857,8 +899,19 @@ dispatch_status() {
   cost_today=$(find "$STATE/logs" -name "$today-*.json" -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
   cost_week=$(find "$STATE/logs" -name '*.json' -mtime -7 -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
   printf 'est. cost:   ~$%s today, ~$%s last 7 days\n' "$cost_today" "$cost_week"
-  printf 'cloud:       %s\n' "$(hbd list -l cloud -n 0 --json 2> /dev/null | jq -r '
-    "\(map(select(.status != "in_progress")) | length) waiting to launch (hub cloud), \(map(select(.status == "in_progress")) | length) running"' 2> /dev/null || echo unknown)"
+  local crow cwait=0 crun=0 cstale=0 cid cstatus cmins
+  while IFS=$'\x1f' read -r cid cstatus cmins _; do
+    [[ -n "$cid" ]] || continue
+    if [[ "$cstatus" != "in_progress" ]]; then
+      cwait=$((cwait + 1))
+    else
+      crun=$((crun + 1))
+      [[ -n "$cmins" ]] && ((cmins >= HUB_CLOUD_STALE_HOURS * 60)) && cstale=$((cstale + 1))
+    fi
+  done <<< "$(cloud_rows)"
+  crow="$cwait waiting to launch, $crun running"
+  ((cstale > 0)) && crow="$crow, $cstale with no PR after ${HUB_CLOUD_STALE_HOURS}h (see hub cloud)"
+  printf 'cloud:       %s\n' "$crow"
   last=$(find "$STATE/logs" -name '*.json' 2> /dev/null | sort | tail -1)
   if [[ -n "$last" ]]; then
     printf 'last run:    %s — %s\n' "$(basename "$last" .json)" \
