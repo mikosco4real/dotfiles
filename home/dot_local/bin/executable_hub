@@ -1,0 +1,547 @@
+#!/usr/bin/env bash
+# hub — the beads hub toolkit. `hub help` for usage; CLAUDE.md, "beads hub",
+# for the design. Plain bash so it also runs under launchd, which reads no
+# shell rc files: everything it needs comes from ~/.config/hub/env.
+set -euo pipefail
+
+HUB_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/hub/env"
+# shellcheck source=/dev/null
+[[ -r "$HUB_ENV" ]] && source "$HUB_ENV"
+# shellcheck source=/dev/null
+[[ -r "$HUB_ENV.local" ]] && source "$HUB_ENV.local"
+
+HUB_DIR="${HUB_DIR:-$HOME/hub}"
+HUB_REMOTE="${HUB_REMOTE:-}"
+HUB_PREFIX="${HUB_PREFIX:-p}"
+HUB_GH_OWNER="${HUB_GH_OWNER:-}"
+HUB_REPO_ROOTS="${HUB_REPO_ROOTS:-$HOME/Projects}"
+HUB_TEMPLATE="${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-template.md"
+
+# Guardrails. Override any of these in ~/.config/hub/env.local. On a claude.ai
+# subscription nothing is billed per run; the dollar figures are Claude Code's
+# own cost ESTIMATE and cap how much of your usage allowance one run may use.
+: "${HUB_DISPATCH_BUDGET_USD:=3}"  # per dispatcher run
+: "${HUB_DISPATCH_MAX_RUNS:=6}"    # dispatcher runs that reach claude, per day
+: "${HUB_DISPATCH_MAX_TURNS:=200}" # per dispatcher run
+: "${HUB_DISPATCH_BATCH:=3}"       # beads handed to one run
+: "${HUB_DISPATCH_HOURS:=08-18}"   # local hours, start inclusive, end exclusive
+: "${HUB_DISPATCH_DAYS:=1-5}"      # ISO weekdays, 1 = Monday
+: "${HUB_REPORT_BUDGET_USD:=0.25}" # per report polish
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/hub"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hub"
+LAUNCHD_DISPATCH="dev.dotfiles.hub-dispatch"
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
+die() {
+  printf 'hub: %s\n' "$*" >&2
+  exit 1
+}
+
+# bd against the hub, without bdh's opportunistic pull: every caller here pulls
+# explicitly, once, at a point where it matters.
+hbd() { BEADS_DIR="$HUB_DIR/.beads" bd "$@"; }
+
+# launchd starts jobs with a bare PATH. claude and gh are installed by mise, bd
+# and jq by Homebrew, so bring both in when they are not already resolvable.
+ensure_path() {
+  local b
+  if ! command -v bd > /dev/null 2>&1 || ! command -v jq > /dev/null 2>&1; then
+    for b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+      [[ -x "$b" ]] && eval "$("$b" shellenv)" && break
+    done
+  fi
+  PATH="$HOME/.local/bin:$PATH"
+  if ! command -v claude > /dev/null 2>&1 || ! command -v gh > /dev/null 2>&1; then
+    command -v mise > /dev/null 2>&1 && eval "$(mise env -s bash 2> /dev/null)"
+  fi
+  export PATH
+}
+
+need() {
+  local t
+  for t in "$@"; do command -v "$t" > /dev/null 2>&1 || die "$t not found on PATH"; done
+}
+
+need_hub() {
+  [[ -d "$HUB_DIR/.beads" ]] || die "no hub at $HUB_DIR (\`hub init\` creates one; \`hub bootstrap\` clones it)"
+}
+
+notify() {
+  if command -v osascript > /dev/null 2>&1; then
+    osascript -e "display notification \"${2//\"/\'}\" with title \"${1//\"/\'}\"" > /dev/null 2>&1 || true
+  elif command -v notify-send > /dev/null 2>&1; then
+    notify-send "$1" "$2" || true
+  fi
+}
+
+# owner/name, lower-cased, from git@host:owner/name.git or https://host/owner/name.
+slug_of() {
+  local u="${1%.git}" name
+  u="${u//://}"
+  name="${u##*/}"
+  u="${u%/*}"
+  printf '%s/%s\n' "${u##*/}" "$name" | tr '[:upper:]' '[:lower:]'
+}
+
+# The Dolt remote URL for a git remote: git@github.com:o/r.git -> git+ssh://git@github.com/o/r.git
+dolt_url_of() {
+  case "$1" in
+    git@*:*) printf 'git+ssh://%s/%s\n' "${1%%:*}" "${1#*:}" ;;
+    https://*) printf 'git+%s\n' "$1" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# `date` differs between BSD (macOS) and GNU (Linux); -j exists only on BSD.
+is_bsd_date() { date -j > /dev/null 2>&1; }
+
+# RFC3339 for local midnight at the start of $1 (YYYY-MM-DD). bd stores
+# closed_at in UTC, and a bare date is ambiguous, so pass the offset.
+day_start() {
+  local z
+  if is_bsd_date; then z=$(date -j -f '%F %T' "$1 00:00:00" +%z); else z=$(date -d "$1 00:00:00" +%z); fi
+  printf '%sT00:00:00%s:%s\n' "$1" "${z:0:3}" "${z:3:2}"
+}
+
+next_day() {
+  if is_bsd_date; then date -j -v+1d -f '%F' "$1" +%F; else date -d "$1 +1 day" +%F; fi
+}
+
+telemetry_off() {
+  bd metrics off > /dev/null 2>&1 || true
+  if command -v dolt > /dev/null 2>&1 && ! dolt config --global --get metrics.disabled > /dev/null 2>&1; then
+    dolt config --global --add metrics.disabled true > /dev/null 2>&1 || true
+  fi
+}
+
+# ─── init: create the hub (once per workspace, ever) ──────────────────────────
+cmd_init() {
+  ensure_path
+  need git gh bd
+  [[ -n "$HUB_REMOTE" ]] || die "hubRemote is blank on this machine; set it with \`chezmoi init\` (or \`make update\`) first"
+  [[ ! -e "$HUB_DIR" ]] || die "$HUB_DIR already exists"
+  local slug
+  slug=$(slug_of "$HUB_REMOTE")
+  if gh repo view "$slug" > /dev/null 2>&1; then
+    die "$slug already exists on GitHub. Clone it instead: hub bootstrap"
+  fi
+
+  printf 'Create a PRIVATE GitHub repo %s and a new %s hub at %s? [y/N] ' "$slug" "${HUB_WORKSPACE:-?}" "$HUB_DIR"
+  local answer
+  read -r answer
+  [[ "$answer" == [yY]* ]] || die "aborted"
+
+  mkdir -p "$HUB_DIR"
+  cd "$HUB_DIR"
+  git init -q -b main
+  git remote add origin "$HUB_REMOTE"
+  # Silences bd's "beads.role not configured" warning on every command. The
+  # hub is private and single-owner, so this machine maintains it.
+  git config beads.role maintainer
+
+  bd init --prefix "$HUB_PREFIX" --skip-agents
+  chmod 700 .beads
+  bd config set dolt.auto-push true > /dev/null
+  bd dolt remote list 2> /dev/null | grep -q '^origin' ||
+    bd dolt remote add origin "$(dolt_url_of "$HUB_REMOTE")" > /dev/null
+
+  cat > CLAUDE.md << EOF
+# Beads hub — ${HUB_WORKSPACE:-unknown} workspace
+
+This repo holds no code. It is the beads work graph for the
+${HUB_WORKSPACE:-unknown} workspace, synced through \`refs/dolt/data\` on this
+repo's remote. Anyone who can read that remote can read every bead, so never
+write secrets or message bodies into one.
+
+**Load the \`hub\` skill before acting on any request in this repo.** It holds
+the labels, the claim → brief → close protocol, tier escalation notes, gates
+and dispatch mode. Don't restate them here; the skill is the single source.
+EOF
+  # Project-scoped SessionStart hook (bd prime) + bd's managed CLAUDE.md block.
+  # Never --global: bd prime would then inject 1-2k tokens into every session.
+  bd setup claude > /dev/null
+  printf '.claude/settings.local.json\n' > .gitignore
+
+  telemetry_off
+  git add -A
+  git commit -q -m "Initialise beads hub (${HUB_WORKSPACE:-unknown})"
+  gh repo create "$slug" --private --source . --push
+  bd dolt push
+  log "hub ready at $HUB_DIR. Other machines: \`chezmoi apply\` (or \`hub bootstrap\`)."
+}
+
+# ─── bootstrap: clone an existing hub onto this machine ───────────────────────
+cmd_bootstrap() {
+  ensure_path
+  need git bd
+  if [[ -z "$HUB_REMOTE" ]]; then
+    log "no hubRemote on this machine; nothing to bootstrap"
+    return 0
+  fi
+  if [[ -d "$HUB_DIR/.git" ]]; then
+    log "hub already present at $HUB_DIR"
+    return 0
+  fi
+  [[ ! -e "$HUB_DIR" ]] || die "$HUB_DIR exists but is not a git repo; move it aside first"
+
+  if ! git ls-remote "$HUB_REMOTE" > /dev/null 2>&1; then
+    log "cannot reach $HUB_REMOTE (not created yet, or no access). Create it once with \`hub init\`, then run \`hub bootstrap\`."
+    return 0
+  fi
+  # bd bootstrap silently creates an EMPTY database when the remote has no
+  # beads data, which would then be pushed over the real one later. Refuse.
+  if ! git ls-remote "$HUB_REMOTE" refs/dolt/data | grep -q .; then
+    log "$HUB_REMOTE has no refs/dolt/data yet; finish \`hub init\` (bd dolt push) on the first machine"
+    return 0
+  fi
+
+  git clone -q "$HUB_REMOTE" "$HUB_DIR"
+  chmod 700 "$HUB_DIR/.beads"
+  git -C "$HUB_DIR" config beads.role maintainer
+  (cd "$HUB_DIR" && bd bootstrap)
+  telemetry_off
+  log "hub cloned to $HUB_DIR"
+}
+
+# ─── report: the daily summary draft ──────────────────────────────────────────
+copy_clipboard() {
+  if command -v pbcopy > /dev/null 2>&1; then
+    pbcopy
+  elif command -v wl-copy > /dev/null 2>&1; then
+    wl-copy
+  elif command -v xclip > /dev/null 2>&1; then
+    xclip -selection clipboard
+  else
+    cat > /dev/null
+    return 1
+  fi
+}
+
+cmd_report() {
+  ensure_path
+  local raw="" day notify_only="" out
+  day=$(date +%F)
+  if [[ "${1:-}" == "show" ]]; then
+    out=$(find "$STATE/reports" -name '*.md' 2> /dev/null | sort | tail -1)
+    [[ -n "$out" ]] || die "no reports yet; run \`hub report\`"
+    cat "$out"
+    copy_clipboard < "$out" && log "copied $(basename "$out") to the clipboard"
+    return 0
+  fi
+  while (($#)); do
+    case "$1" in
+      --raw) raw=1 ;;
+      --date)
+        day="${2:?--date needs YYYY-MM-DD}"
+        shift
+        ;;
+      --notify) notify_only=1 ;;
+      *) die "report: unknown option $1" ;;
+    esac
+    shift
+  done
+  need bd jq
+  need_hub
+
+  hbd dolt pull > /dev/null 2>&1 || log "pull failed; reporting from the local copy"
+  local from to closed wip blocked todos prs md
+  from=$(day_start "$day")
+  to=$(day_start "$(next_day "$day")")
+  closed=$(hbd list -s closed --closed-after "$from" --closed-before "$to" -n 0 --json 2> /dev/null || echo '[]')
+  wip=$(hbd list -s in_progress -n 0 --json 2> /dev/null || echo '[]')
+  blocked=$(hbd blocked --json 2> /dev/null || echo '[]')
+  todos=$(hbd list -l human -n 0 --json 2> /dev/null || echo '[]')
+  prs='[]'
+  if command -v gh > /dev/null 2>&1; then
+    # macOS ships bash 3.2, where "${arr[@]}" of an EMPTY array is an unbound-
+    # variable error under set -u. The ${arr[@]+...} form expands to nothing.
+    local owner_flag=()
+    [[ -n "$HUB_GH_OWNER" ]] && owner_flag=(--owner "$HUB_GH_OWNER")
+    prs=$(gh search prs --author=@me --merged="$from..$to" ${owner_flag[@]+"${owner_flag[@]}"} \
+      --json title,url,repository --limit 100 2> /dev/null || echo '[]')
+  fi
+
+  md=$(jq -nr --arg day "$day" \
+    --argjson closed "${closed:-[]}" --argjson wip "${wip:-[]}" \
+    --argjson blocked "${blocked:-[]}" --argjson todos "${todos:-[]}" --argjson prs "${prs:-[]}" '
+    def repo: ((.labels // []) | map(select(startswith("repo:"))) | first // "repo:(no repo)") | ltrimstr("repo:");
+    def who: if ((.labels // []) | index("manual")) then "" else " _(agent)_" end;
+    def section(title; items; fmt):
+      if (items | length) == 0 then empty else "\n## \(title)\n", (items | .[] | fmt) end;
+    "# Work summary — \($day)",
+    section("Done"; ($closed | map(select(.issue_type != "gate")) | sort_by(repo));
+      "- [\(repo)] \(.title)\(who)\(if (.close_reason // "") | test("^https?://|PR") then " — \(.close_reason)" else "" end)"),
+    section("PRs merged"; $prs; "- [\(.repository.nameWithOwner)] \(.title) — \(.url)"),
+    section("In progress"; $wip; "- [\(repo)] \(.title)"),
+    section("Blocked"; $blocked; "- [\(repo)] \(.title) — blocked by \(.blocked_by | join(", "))"),
+    section("My to-dos"; $todos; "- \(.title)")
+  ')
+
+  mkdir -p "$STATE/reports"
+  out="$STATE/reports/$day.md"
+  if [[ -n "$raw" ]] || ! command -v claude > /dev/null 2>&1 || [[ ! -r "$HUB_TEMPLATE" ]]; then
+    printf '%s\n' "$md" > "$out"
+  else
+    # No tools, no MCP servers, nothing to approve: this run only rewrites text.
+    # Run from $STATE so no project hook (e.g. the hub's bd prime) fires.
+    (cd "$STATE" && printf '%s\n' "$md" | claude -p --model sonnet --tools "" \
+      --strict-mcp-config --max-budget-usd "$HUB_REPORT_BUDGET_USD" \
+      --append-system-prompt "$(cat "$HUB_TEMPLATE")" \
+      "Rewrite the work summary on stdin as my daily update, following the system instructions.") > "$out" ||
+      {
+        log "polish failed; saved the raw summary instead"
+        printf '%s\n' "$md" > "$out"
+      }
+  fi
+
+  if [[ -n "$notify_only" ]]; then
+    notify "Daily report ready" "hub report show — prints it and copies it to the clipboard"
+  else
+    cat "$out"
+    log "saved $out — \`hub report show\` copies it to the clipboard"
+  fi
+}
+
+# ─── dispatch: work agent-ok beads unattended ─────────────────────────────────
+within_hours() {
+  local d h
+  d=$(date +%u)
+  h=$((10#$(date +%H)))
+  ((d >= ${HUB_DISPATCH_DAYS%-*} && d <= ${HUB_DISPATCH_DAYS#*-})) || return 1
+  ((h >= 10#${HUB_DISPATCH_HOURS%-*} && h < 10#${HUB_DISPATCH_HOURS#*-}))
+}
+
+# Local clone for an owner/name slug: a cached origin-URL scan of HUB_REPO_ROOTS.
+resolve_repo() {
+  local slug="$1" cache="$CACHE/repos.tsv" path="" g d url root
+  [[ -r "$cache" ]] && path=$(awk -F'\t' -v s="$slug" '$1 == s { print $2; exit }' "$cache")
+  if [[ -z "$path" || ! -e "$path/.git" ]]; then
+    mkdir -p "$CACHE"
+    for root in $HUB_REPO_ROOTS; do
+      [[ -d "$root" ]] || continue
+      find "$root" -maxdepth 4 -name .git -prune 2> /dev/null | while read -r g; do
+        d="${g%/.git}"
+        url=$(git -C "$d" remote get-url origin 2> /dev/null) || continue
+        printf '%s\t%s\n' "$(slug_of "$url")" "$d"
+      done
+    done > "$cache.new"
+    mv "$cache.new" "$cache"
+    path=$(awk -F'\t' -v s="$slug" '$1 == s { print $2; exit }' "$cache")
+  fi
+  [[ -n "$path" ]] && printf '%s\n' "$path"
+}
+
+dispatch_run() {
+  local dry="" force=""
+  while (($#)); do
+    case "$1" in
+      --dry-run) dry=1 ;;
+      --force) force=1 ;; # ignore the hours window, for a manual run
+      *) die "dispatch run: unknown option $1" ;;
+    esac
+    shift
+  done
+  ensure_path
+  need bd jq git
+  need_hub
+  mkdir -p "$STATE/runs" "$STATE/logs" "$CACHE/wt"
+
+  if [[ -e "$STATE/paused" ]]; then
+    log "paused (hub dispatch resume)"
+    return 0
+  fi
+  if [[ -z "$dry$force" ]] && ! within_hours; then
+    log "outside dispatch hours ($HUB_DISPATCH_DAYS / $HUB_DISPATCH_HOURS)"
+    return 0
+  fi
+
+  # launchd never overlaps one job with itself, but a manual run could.
+  # (macOS has no flock, hence mkdir.) A lock whose pid is gone is stale.
+  # Global, not local: the EXIT trap fires after this function has returned.
+  DISPATCH_LOCK="$STATE/dispatch.lock"
+  if ! mkdir "$DISPATCH_LOCK" 2> /dev/null; then
+    if kill -0 "$(cat "$DISPATCH_LOCK/pid" 2> /dev/null)" 2> /dev/null; then
+      log "another dispatch is running"
+      return 0
+    fi
+    rm -rf "$DISPATCH_LOCK"
+    mkdir "$DISPATCH_LOCK"
+  fi
+  echo $$ > "$DISPATCH_LOCK/pid"
+  trap 'rm -rf "$DISPATCH_LOCK"' EXIT
+
+  local today runs
+  today=$(date +%F)
+  runs=$(find "$STATE/runs" -name "$today-*" 2> /dev/null | wc -l | tr -d ' ')
+  if ((runs >= HUB_DISPATCH_MAX_RUNS)); then
+    log "daily cap reached ($runs/$HUB_DISPATCH_MAX_RUNS runs)"
+    return 0
+  fi
+
+  hbd dolt pull > /dev/null 2>&1 || log "pull failed; dispatching from the local copy"
+  hbd gate check > /dev/null 2>&1 || log "gate check failed (is gh logged in?)"
+
+  # Opt-in only: agent-ok, and never anything marked human or triage.
+  local ready
+  ready=$(hbd ready --json -l agent-ok -n 50 2> /dev/null | jq -c '
+    [.[] | select((.labels // []) | (index("human") or index("triage")) | not)]')
+  if [[ "$(jq length <<< "$ready")" -eq 0 ]]; then
+    log "nothing ready"
+    return 0
+  fi
+
+  # Attach each bead's local clone; skip (once-noted) beads with none.
+  local batch='[]' bead id slug path notes
+  local -a dirs=()
+  while read -r bead; do
+    id=$(jq -r .id <<< "$bead")
+    slug=$(jq -r '(.labels // []) | map(select(startswith("repo:"))) | first // "" | ltrimstr("repo:") | ascii_downcase' <<< "$bead")
+    if [[ -z "$slug" ]]; then
+      log "$id has no repo:<owner>/<name> label; skipped"
+      continue
+    fi
+    path=$(resolve_repo "$slug" || true)
+    if [[ -z "$path" ]]; then
+      notes=$(jq -r '.notes // ""' <<< "$bead")
+      [[ "$notes" == *"no local clone"* ]] ||
+        hbd update "$id" --append-notes "dispatch: no local clone of $slug under $HUB_REPO_ROOTS; skipped" > /dev/null 2>&1 || true
+      log "$id: no local clone of $slug; skipped"
+      continue
+    fi
+    batch=$(jq -c --argjson b "$bead" --arg p "$path" '. + [$b + {path: $p}]' <<< "$batch")
+    dirs+=(--add-dir "$path")
+    (($(jq length <<< "$batch") < HUB_DISPATCH_BATCH)) || break
+  done < <(jq -c '.[]' <<< "$ready")
+
+  if [[ "$(jq length <<< "$batch")" -eq 0 ]]; then
+    log "no dispatchable beads"
+    return 0
+  fi
+  if [[ -n "$dry" ]]; then
+    log "dry run — would dispatch:"
+    jq -r '.[] | "  \(.id)  \(.title)  →  \(.path)"' <<< "$batch"
+    printf '  claude args: %s\n' "${dirs[*]} --add-dir $CACHE/wt"
+    return 0
+  fi
+
+  local stamp logf rc=0
+  stamp="$today-$(date +%H%M%S)"
+  touch "$STATE/runs/$stamp"
+  logf="$STATE/logs/$stamp.json"
+  log "dispatching $(jq length <<< "$batch") bead(s); log: $logf"
+
+  # The prompt goes on stdin: --add-dir and --disallowedTools are variadic and
+  # would swallow a trailing positional prompt. cwd is the hub, so its
+  # SessionStart hook primes the session. --strict-mcp-config drops every MCP
+  # server, claude.ai connectors included (verified: mcp_servers = []).
+  printf 'Load the `hub` skill and follow its dispatch mode for these ready beads. Each bead has a "path": the local clone to branch from. Beads: %s\n' "$batch" |
+    (cd "$HUB_DIR" && BEADS_ACTOR=agent:dispatch claude -p --agent orchestrator \
+      --permission-mode auto --permission-prompts none --strict-mcp-config \
+      --max-budget-usd "$HUB_DISPATCH_BUDGET_USD" --max-turns "$HUB_DISPATCH_MAX_TURNS" \
+      --output-format json \
+      --disallowedTools "Bash(gh pr merge *)" "Bash(gh pr ready *)" "Bash(git push --force *)" \
+      "Bash(git push -f *)" "Bash(git push --force-with-lease *)" \
+      "${dirs[@]}" --add-dir "$CACHE/wt") > "$logf" 2> "${logf%.json}.err" || rc=$?
+
+  hbd dolt push > /dev/null 2>&1 || log "push failed; the next run retries"
+
+  local summary
+  summary=$(jq -r '"\(.subtype // "error") · ~$\((.total_cost_usd // 0) * 100 | round / 100) · \((.result // "") | tostring | .[0:140])"' "$logf" 2> /dev/null ||
+    echo "claude exited $rc; see ${logf%.json}.err")
+  log "$summary"
+  notify "hub dispatch" "$summary"
+}
+
+dispatch_status() {
+  local today runs cost_today cost_week last
+  today=$(date +%F)
+  runs=$(find "$STATE/runs" -name "$today-*" 2> /dev/null | wc -l | tr -d ' ')
+  printf 'paused:      %s\n' "$([[ -e "$STATE/paused" ]] && echo yes || echo no)"
+  printf 'runs today:  %s / %s\n' "$runs" "$HUB_DISPATCH_MAX_RUNS"
+  printf 'guardrails:  ~$%s/run, %s turns, %s beads/run, days %s, hours %s\n' \
+    "$HUB_DISPATCH_BUDGET_USD" "$HUB_DISPATCH_MAX_TURNS" "$HUB_DISPATCH_BATCH" \
+    "$HUB_DISPATCH_DAYS" "$HUB_DISPATCH_HOURS"
+  if command -v launchctl > /dev/null 2>&1; then
+    printf 'launchd:     %s\n' "$(launchctl print "gui/$(id -u)/$LAUNCHD_DISPATCH" > /dev/null 2>&1 && echo loaded || echo "not loaded")"
+  fi
+  # shellcheck disable=SC2016
+  cost_today=$(find "$STATE/logs" -name "$today-*.json" -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
+  cost_week=$(find "$STATE/logs" -name '*.json' -mtime -7 -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
+  printf 'est. cost:   ~$%s today, ~$%s last 7 days\n' "$cost_today" "$cost_week"
+  last=$(find "$STATE/logs" -name '*.json' 2> /dev/null | sort | tail -1)
+  if [[ -n "$last" ]]; then
+    printf 'last run:    %s — %s\n' "$(basename "$last" .json)" \
+      "$(jq -r '"\(.subtype // "?") · \((.result // "") | tostring | .[0:120])"' "$last" 2> /dev/null || echo unreadable)"
+  fi
+}
+
+dispatch_approve() {
+  local id="${1:?usage: hub dispatch approve <bead-id>}" gates g
+  ensure_path
+  need_hub
+  hbd update "$id" --add-label fable-ok > /dev/null
+  gates=$(hbd show "$id" --json | jq -r '(if type == "array" then .[0] else . end) | .dependencies // []
+    | .[] | select(.issue_type == "gate" and .await_type == "human" and .status != "closed") | .id')
+  for g in $gates; do
+    hbd gate resolve "$g" -r "Fable approved by $(git config --global user.name)" > /dev/null
+    log "resolved $g"
+  done
+  log "$id labelled fable-ok; the next dispatch run may use Fable on it"
+}
+
+cmd_dispatch() {
+  local sub="${1:-status}"
+  shift || true
+  case "$sub" in
+    run) dispatch_run "$@" ;;
+    pause)
+      mkdir -p "$STATE"
+      touch "$STATE/paused"
+      log "dispatcher paused"
+      ;;
+    resume)
+      rm -f "$STATE/paused"
+      log "dispatcher resumed"
+      ;;
+    status) dispatch_status ;;
+    approve) dispatch_approve "$@" ;;
+    *) die "dispatch: unknown subcommand $sub (run|pause|resume|status|approve)" ;;
+  esac
+}
+
+usage() {
+  cat << 'EOF'
+hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
+
+  hub init                      create this workspace's hub + private GitHub repo (once, ever)
+  hub bootstrap                 clone the existing hub onto this machine (chezmoi runs this)
+  hub report [--raw] [--date D] build today's summary draft (--raw: skip the Sonnet polish)
+  hub report show               print the latest draft and copy it to the clipboard
+  hub dispatch run [--dry-run]  work ready agent-ok beads unattended (launchd runs this)
+  hub dispatch pause|resume     kill switch
+  hub dispatch status           runs today, estimated cost, last result
+  hub dispatch approve <id>     allow Fable on a bead and lift its human gate
+
+Shell helpers: did "text" (log your own work), todo ["text"] (your to-dos).
+Overrides: ~/.config/hub/env.local, e.g. HUB_DISPATCH_BUDGET_USD=1
+EOF
+}
+
+case "${1:-help}" in
+  init) cmd_init ;;
+  bootstrap) cmd_bootstrap ;;
+  report)
+    shift
+    cmd_report "$@"
+    ;;
+  dispatch)
+    shift
+    cmd_dispatch "$@"
+    ;;
+  help | -h | --help) usage ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
