@@ -33,6 +33,21 @@
 .config/mise/conf.d/linux.toml
 {{- end }}
 
+{{- if ne .chezmoi.os "darwin" }}
+{{/* launchd agents are macOS-only. Without this, Linux would get an empty
+     ~/Library/LaunchAgents tree. */}}
+Library
+Library/**
+{{- end }}
+
+{{- if not (get . "hubDispatcher") }}
+{{/* The beads hub dispatcher and its scheduled daily report run on exactly
+     ONE machine per hub; two would claim the same work between syncs. Read
+     with get, so a machine that has not re-run chezmoi init still renders. */}}
+Library/LaunchAgents
+Library/LaunchAgents/**
+{{- end }}
+
 {{- if not .gui }}
 {{/* Headless / server / container: no GUI app config at all */}}
 .config/zed/**

@@ -1,0 +1,37 @@
+{{ if and (eq .chezmoi.os "darwin") (get . "hubDispatcher") -}}
+#!/usr/bin/env bash
+# (Re)load the beads hub launchd agents on the dispatcher machine. launchd
+# reads a plist only when the job is bootstrapped, so a changed plist needs
+# bootout + bootstrap. run_onchange_, keyed on both plists' content:
+#
+# hub-dispatch.plist: {{ include "private_Library/LaunchAgents/dev.dotfiles.hub-dispatch.plist.tmpl" | sha256sum }}
+# hub-report.plist:   {{ include "private_Library/LaunchAgents/dev.dotfiles.hub-report.plist.tmpl" | sha256sum }}
+#
+# Renders empty (and so never runs) unless this is macOS with
+# hubDispatcher = true. To stop dispatching without unloading anything, use
+# `hub dispatch pause`. To move the dispatcher to another machine, set
+# hubDispatcher = false here (`chezmoi init`) and launchctl bootout both labels.
+set -euo pipefail
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+{{ if env "CI" -}}
+log "CI detected; not loading launchd agents"
+exit 0
+{{ end -}}
+
+# launchd does not create the log directory named in StandardOutPath.
+mkdir -p "$HOME/.local/state/hub"
+
+domain="gui/$(id -u)"
+for label in dev.dotfiles.hub-dispatch dev.dotfiles.hub-report; do
+  plist="$HOME/Library/LaunchAgents/$label.plist"
+  if [[ ! -f "$plist" ]]; then
+    log "WARNING: $plist missing; skipping"
+    continue
+  fi
+  launchctl bootout "$domain/$label" 2> /dev/null || true
+  launchctl bootstrap "$domain" "$plist" || log "WARNING: could not load $label"
+  log "loaded $label"
+done
+{{ end -}}

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  beads hub dispatcher: `hub dispatch run` every 30 minutes. It is cheap when
+  there is nothing to do: it spends zero tokens unless a ready agent-ok bead
+  exists, and it exits early when paused, outside HUB_DISPATCH_HOURS/DAYS, or
+  at the daily run cap (see `hub dispatch status`).
+
+  Installed ONLY on the machine with hubDispatcher = true (see .chezmoiignore),
+  and loaded by .chezmoiscripts/run_onchange_after_80-hub-launchd. A template,
+  so it is a real file: launchd needs absolute paths and cannot expand ~.
+  launchd never starts a second instance of a job while one is still running.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.dotfiles.hub-dispatch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{ .chezmoi.homeDir }}/.local/bin/hub</string>
+    <string>dispatch</string>
+    <string>run</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>{{ .chezmoi.homeDir }}/.local/state/hub/launchd-dispatch.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ .chezmoi.homeDir }}/.local/state/hub/launchd-dispatch.log</string>
+</dict>
+</plist>
