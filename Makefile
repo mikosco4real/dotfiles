@@ -34,7 +34,10 @@ status: ## Show which managed files have drifted
 
 update: ## git pull, then apply, then refresh vendored externals
 	$(CHEZMOI) git pull -- --autostash --rebase
-	$(CHEZMOI) apply --verbose
+	@# --init regenerates ~/.config/chezmoi/chezmoi.toml from .chezmoi.toml.tmpl,
+	@# so a prompt added to the template is asked once here. The *Once prompts
+	@# never re-ask a question that already has an answer.
+	$(CHEZMOI) apply --init --verbose
 	$(CHEZMOI) apply --refresh-externals
 	@command -v brew >/dev/null 2>&1 && brew bundle install --file="$(REPO_ROOT)/home/dot_config/homebrew/Brewfile" --no-upgrade || true
 	@command -v mise >/dev/null 2>&1 && mise install || true

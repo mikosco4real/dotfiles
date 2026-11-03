@@ -12,6 +12,23 @@
 {{- $workOrg   := promptStringOnce . "workOrg"   "Work git org (matched on remote URL)" "webtize" -}}
 {{- $class     := promptChoiceOnce . "machineClass" "Machine class" (list "personal" "work") "work" -}}
 {{- $gui       := promptBoolOnce   . "gui"       "Desktop machine? (installs GUI apps + fonts)" true -}}
+{{/*
+   beads hub (see CLAUDE.md, "beads hub"). One private hub repo per workspace:
+   work machines default to a repo in the work org; personal machines have no
+   default, so leave it blank until the personal hub exists. Blank = no hub on
+   this machine. Exactly ONE machine per hub may run the dispatcher — two would
+   both claim the same work between syncs — so it defaults to off.
+
+   Templates read these with `get . "hubRemote"`, never `.hubRemote`: a machine
+   that has not re-run `chezmoi init` yet has no such key, and a bare field
+   reference is a hard template error that would block every apply.
+*/}}
+{{- $hubDefault := "" -}}
+{{- if eq $class "work" -}}
+{{-   $hubDefault = printf "git@github.com:%s/mokolo-hub.git" $workOrg -}}
+{{- end -}}
+{{- $hubRemote     := promptStringOnce . "hubRemote"     "beads hub git remote (blank = no hub)" $hubDefault -}}
+{{- $hubDispatcher := promptBoolOnce   . "hubDispatcher" "Run the hub dispatcher on THIS machine? (one per hub)" false -}}
 
 # Symlink dotfiles back into this repo, so editing a deployed file edits the repo
 # directly — the one Stow behaviour worth keeping. Templates, private_, create_
@@ -25,6 +42,8 @@ mode = "symlink"
     workOrg      = {{ $workOrg   | quote }}
     machineClass = {{ $class     | quote }}
     gui          = {{ $gui }}
+    hubRemote     = {{ $hubRemote | quote }}
+    hubDispatcher = {{ $hubDispatcher }}
 
 [git]
     autoCommit = false
