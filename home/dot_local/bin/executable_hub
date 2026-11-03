@@ -28,6 +28,9 @@ HUB_TEMPLATE="${HUB_TEMPLATE:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-templ
 : "${HUB_DISPATCH_DAYS:=1-5}"      # ISO weekdays, 1 = Monday
 : "${HUB_REPORT_BUDGET_USD:=0.25}" # per report polish
 : "${HUB_CLOUD_STALE_HOURS:=2}"    # a cloud session with no PR after this is flagged
+: "${HUB_REPORT_AT:=16:45}"        # daily draft: first dispatcher cycle at or after this
+: "${HUB_REPORT_DAYS:=1-5}"        # ISO weekdays for the daily draft
+: "${HUB_REPORT_MAX_AGE_MIN:=15}"  # `hub report show` rebuilds a draft older than this
 
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/hub"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hub"
@@ -231,11 +234,16 @@ copy_clipboard() {
 
 cmd_report() {
   ensure_path
-  local raw="" day notify_only="" out
+  local raw="" day notify_only="" quiet="" out
   day=$(date +%F)
   if [[ "${1:-}" == "show" ]]; then
-    out=$(find "$STATE/reports" -name '*.md' 2> /dev/null | sort | tail -1)
-    [[ -n "$out" ]] || die "no reports yet; run \`hub report\`"
+    out="$STATE/reports/$day.md"
+    # Rebuild a missing or stale draft first. `show` used to print whatever was
+    # saved last, so work logged after that save never appeared in it.
+    if [[ ! -f "$out" || -n "$(find "$out" -mmin +"$HUB_REPORT_MAX_AGE_MIN" 2> /dev/null)" ]]; then
+      log "today's draft is missing or over $HUB_REPORT_MAX_AGE_MIN minutes old; rebuilding it"
+      cmd_report --quiet
+    fi
     cat "$out"
     copy_clipboard < "$out" && log "copied $(basename "$out") to the clipboard"
     return 0
@@ -248,6 +256,8 @@ cmd_report() {
         shift
         ;;
       --notify) notify_only=1 ;;
+      --quiet) quiet=1 ;; # save only; `show` prints it
+
       *) die "report: unknown option $1" ;;
     esac
     shift
@@ -279,7 +289,7 @@ cmd_report() {
     --argjson blocked "${blocked:-[]}" --argjson todos "${todos:-[]}" --argjson prs "${prs:-[]}" \
     --argjson cloudwait "${cloudwait:-[]}" '
     def repo: ((.labels // []) | map(select(startswith("repo:"))) | first // "repo:(no repo)") | ltrimstr("repo:");
-    def who: if ((.labels // []) | index("manual")) then "" else " _(agent)_" end;
+    def who: if ((.assignee // "") | test("^(agent:|claude$)")) then " _(agent)_" else "" end;
     def section(title; items; fmt):
       if (items | length) == 0 then empty else "\n## \(title)\n", (items | .[] | fmt) end;
     "# Work summary — \($day)",
@@ -318,9 +328,31 @@ cmd_report() {
 
   if [[ -n "$notify_only" ]]; then
     notify "Daily report ready" "hub report show — prints it and copies it to the clipboard"
-  else
+  elif [[ -z "$quiet" ]]; then
     cat "$out"
     log "saved $out — \`hub report show\` copies it to the clipboard"
+  fi
+}
+
+# The daily draft rides on the dispatcher's 30-minute StartInterval cycle. A
+# separate StartCalendarInterval agent for 16:45 never fired on this Mac: its
+# triggers were registered, the machine was awake, launchd showed runs = 0 and
+# logged nothing, while the StartInterval job beside it fired every time. This
+# also catches up after sleep: the first cycle at or after HUB_REPORT_AT on a
+# report day builds the draft, once.
+maybe_daily_report() {
+  local day hm marker
+  day=$(date +%u)
+  hm=$(date +%H%M)
+  ((day >= ${HUB_REPORT_DAYS%-*} && day <= ${HUB_REPORT_DAYS#*-})) || return 0
+  ((10#$hm >= 10#${HUB_REPORT_AT/:/})) || return 0
+  marker="$STATE/reports/$(date +%F).auto"
+  [[ -e "$marker" ]] && return 0
+  mkdir -p "$STATE/reports"
+  if (cmd_report --notify); then
+    touch "$marker"
+  else
+    log "daily report failed; the next cycle retries"
   fi
 }
 
@@ -793,12 +825,16 @@ dispatch_run() {
   need_hub
   mkdir -p "$STATE/runs" "$STATE/logs" "$CACHE/wt"
 
+  # Before the pause and hours checks: pausing dispatch shouldn't stop the
+  # daily draft, and 16:45 falls inside dispatch hours anyway.
+  [[ -n "$dry" ]] || maybe_daily_report
+
   if [[ -e "$STATE/paused" ]]; then
     log "paused (hub dispatch resume)"
     return 0
   fi
   if [[ -z "$dry$force" ]] && ! within_hours; then
-    log "outside dispatch hours ($HUB_DISPATCH_DAYS / $HUB_DISPATCH_HOURS)"
+    log "outside dispatch hours ($HUB_DISPATCH_DAYS / $HUB_DISPATCH_HOURS); \`hub dispatch run --force\` runs now"
     return 0
   fi
 
@@ -849,7 +885,17 @@ dispatch_run() {
   ready=$(hbd ready --json -l agent-ok -n 50 2> /dev/null | jq -c '
     [.[] | select((.labels // []) | (index("human") or index("triage") or index("cloud")) | not)]')
   if [[ "$(jq length <<< "$ready")" -eq 0 ]]; then
-    log "nothing ready"
+    # Say why, since `bdh ready` lists beads the dispatcher deliberately skips.
+    local skipped
+    skipped=$(hbd ready --json -n 50 2> /dev/null | jq -r '[.[] | select(.issue_type != "gate")
+      | select((.labels // []) | (index("agent-ok") or index("human") or index("triage") or index("cloud")) | not)
+      | .id] | join(" ")')
+    if [[ -n "$skipped" ]]; then
+      log "nothing ready with agent-ok. Ready but not opted in: $skipped"
+      log "queue one with: bdh update <id> --add-label agent-ok   (human, cloud and triage beads are never dispatched)"
+    else
+      log "nothing ready"
+    fi
     return 0
   fi
 

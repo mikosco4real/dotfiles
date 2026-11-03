@@ -376,6 +376,16 @@ Rules that matter:
   unbound-variable error under `set -u` (use `${arr[@]+"${arr[@]}"}`).
 - `closed_at` is stored in UTC. Pass `--closed-after` an RFC3339 local midnight
   with its offset (`hub report` does), not a bare date.
+- **The daily draft rides on the dispatcher's StartInterval cycle**
+  (`maybe_daily_report`): the first cycle at or after `HUB_REPORT_AT` (16:45) on
+  a report day builds it once, before the pause and hours checks. It used to be
+  a separate StartCalendarInterval agent, which never fired on this Mac. launchd
+  registered its triggers and the machine was awake at 16:45, yet it showed
+  `runs = 0` and logged nothing, while the StartInterval job beside it fired
+  every time. Don't reintroduce a calendar agent without checking
+  `launchctl print gui/$UID/<label>` shows runs going up. `hub report show`
+  rebuilds a draft older than `HUB_REPORT_MAX_AGE_MIN` (15), because printing a
+  stale saved draft hid work logged after it.
 - `hub bootstrap` refuses a remote with no `refs/dolt/data`: `bd bootstrap`
   would otherwise create an empty database without a word.
 - The helper is `did`, not `done`, because `done` is a zsh reserved word.

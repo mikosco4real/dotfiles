@@ -54,6 +54,7 @@ _hub_repo_opt() {
 
 # did "Reviewed the rollout plan with Priya"
 # did -r webtize/payments-api "Paired with Sid on the retry bug"
+# did w-abc ["how it went"]   — mark an existing bead (e.g. a todo) done
 # Logs work you did yourself as an already-closed bead, so the daily report
 # (`hub report`) sees it. Tagged repo:<owner>/<name> from -r, or else from the
 # git repo you're in; outside a repo and without -r it gets no repo label.
@@ -62,8 +63,21 @@ did() {
   _hub_repo_opt "$@" || return
   shift $_hub_n
   if (( ! $# )); then
-    print -u2 'usage: did [-r owner/name] "what you did"   — logs a closed bead in the hub'
+    print -u2 'usage: did [-r owner/name] "what you did" | did <bead-id> ["note"]'
     return 1
+  fi
+  # An existing bead ID first: close that bead instead of logging a new one.
+  # The ID shape alone isn't enough ("follow-up" looks like one), so it must
+  # also exist; anything else falls through to ordinary logging.
+  if [[ "$1" =~ '^[a-z]+-[a-z0-9]{3,}$' ]] && bdh show "$1" > /dev/null 2>&1; then
+    id=$1
+    shift
+    local add=(--add-label manual)
+    [[ -n "$_hub_slug" ]] && add+=(--add-label "repo:$_hub_slug")
+    bdh update "$id" "${add[@]}" > /dev/null || return
+    bdh close "$id" -r "${*:-done}" > /dev/null || return
+    print -r -- "done $id: $(bdh show "$id" --json 2> /dev/null | jq -r '.[0].title // .title')"
+    return
   fi
   slug=${_hub_slug:-$(_hub_repo_slug)}
   [[ -n "$slug" ]] && labels+=",repo:$slug"
