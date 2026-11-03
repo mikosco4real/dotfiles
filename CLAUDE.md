@@ -419,6 +419,20 @@ Rules that matter:
   refuse. A launch that prints no link and exits non-zero releases the claim.
   `HUB_CLAUDE_BIN` swaps the binary for testing.
 
+  **Permission mode is the trap.** A cloud session started in Accept edits
+  edits files freely but stops at `git push` / `gh pr create` for an
+  approval nobody gives; the first real run (w-dnk) stalled exactly there.
+  No documented setting fixes it:
+  - the mode comes from the claude.ai mode dropdown;
+  - `defaultMode: "auto"` is ignored from project settings;
+  - user settings never reach the cloud;
+  - server-managed settings would set it for the whole org.
+
+  So `hub cloud` passes `--permission-mode auto` (HUB_CLOUD_PERMISSION_MODE),
+  which is UNVERIFIED for `--cloud`. If that run fails without creating a
+  session, it retries once without the flag. Either way it reminds you to
+  check the mode on the session page.
+
   Cloud sessions load only the repo's committed config, never `~/.claude`, so
   the brief is self-contained and there are no worker tiers there. A possible
   future headless path is a scheduled task's API trigger

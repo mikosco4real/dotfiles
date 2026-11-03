@@ -489,6 +489,23 @@ cloud_repo_path() {
   printf '%s\n' "$path"
 }
 
+# Run `claude --cloud <brief> [extra flags]` from worktree $1, recording the
+# terminal to $2 with script(1) so the printed session link can be read back.
+# Not `| tee`: that makes stdout a pipe, and an interactive-only command may then
+# refuse. BSD (macOS) and util-linux script(1) take different arguments.
+cloud_exec() {
+  local wt="$1" transcript="$2" cli="$3" brief="$4"
+  shift 4
+  : > "$transcript"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    (cd "$wt" && script -q "$transcript" "$cli" --cloud "$brief" "$@")
+  elif script --version 2> /dev/null | grep -q util-linux; then
+    (cd "$wt" && script -q -e -c "$(printf '%q ' "$cli" --cloud "$brief" "$@")" "$transcript")
+  else
+    (cd "$wt" && "$cli" --cloud "$brief" "$@")
+  fi
+}
+
 cloud_launch() {
   local id="$1" dry="${2:-}" bead slug path wt branch base brief
   bead=$(bead_json "$id")
@@ -546,27 +563,47 @@ cloud_launch() {
   hbd dolt push > /dev/null 2>&1 || true
   log "starting a cloud session for $id from $branch. It keeps running if you close this terminal."
 
-  # Record the terminal with script(1) so the "View: <session URL>" line can be
-  # saved on the bead. Not `| tee`: that makes stdout a pipe, and an
-  # interactive-only command may then refuse. BSD (macOS) and util-linux
-  # script(1) take different arguments.
-  local cli="${HUB_CLAUDE_BIN:-claude}" transcript rc=0 session
+  # cloud_exec records the terminal so the "View: <session URL>" line can be
+  # saved on the bead.
+  local cli="${HUB_CLAUDE_BIN:-claude}" transcript rc=0 session mode="${HUB_CLOUD_PERMISSION_MODE-auto}" asked=""
   mkdir -p "$STATE/cloud"
   transcript="$STATE/cloud/$id.log"
-  if [[ "$(uname)" == "Darwin" ]]; then
-    (cd "$wt" && script -q "$transcript" "$cli" --cloud "$brief") || rc=$?
-  elif script --version 2> /dev/null | grep -q util-linux; then
-    (cd "$wt" && script -q -e -c "$(printf '%q ' "$cli" --cloud "$brief")" "$transcript") || rc=$?
-  else
-    (cd "$wt" && "$cli" --cloud "$brief") || rc=$?
+
+  # Ask for Auto mode, or the session starts in Accept edits and then sits at
+  # its first `git push` / `gh pr create`, waiting for an approval nobody gives.
+  # UNVERIFIED: the docs say a cloud session's mode comes from the claude.ai mode
+  # dropdown and never say whether `--cloud` honours `--permission-mode`. Repo
+  # settings can't do it (`defaultMode: auto` is ignored from project files) and
+  # user settings never reach the cloud. So try the flag, and if a run with it
+  # fails without creating a session, retry once without it.
+  # HUB_CLOUD_PERMISSION_MODE= (empty) disables the flag.
+  if [[ -n "$mode" ]]; then
+    asked="$mode"
+    cloud_exec "$wt" "$transcript" "$cli" "$brief" --permission-mode "$mode" || rc=$?
+    session=$(grep -a -o -E 'https://claude\.ai/code/session_[A-Za-z0-9_-]+' "$transcript" 2> /dev/null | head -1 || true)
+    if [[ -z "$session" ]] && ((rc != 0)); then
+      log "starting with --permission-mode $mode failed; retrying without it"
+      asked=""
+      rc=0
+    fi
   fi
-  session=$(grep -a -o -E 'https://claude\.ai/code/session_[A-Za-z0-9_-]+' "$transcript" 2> /dev/null | head -1 || true)
+  if [[ -z "$asked" && -z "${session:-}" ]]; then
+    cloud_exec "$wt" "$transcript" "$cli" "$brief" || rc=$?
+    session=$(grep -a -o -E 'https://claude\.ai/code/session_[A-Za-z0-9_-]+' "$transcript" 2> /dev/null | head -1 || true)
+  fi
   rm -f "$transcript"
 
   if [[ -n "$session" ]]; then
     hbd update "$id" --append-notes "cloud session: $session" > /dev/null
     hbd dolt push > /dev/null 2>&1 || true
     log "saved the session link on $id: $session"
+    if [[ -n "$asked" ]]; then
+      log "asked for $asked mode. Check the mode on the session page: if it says Accept edits, switch it to Auto,"
+      log "or the session will stop at git push. (Whether --cloud honours the flag is not documented.)"
+    else
+      log "the session started in its default mode. Open the link and switch the mode to Auto,"
+      log "or it will stop at git push waiting for your approval."
+    fi
   elif ((rc != 0)); then
     # Nothing started: release the claim so it shows as waiting again.
     hbd update "$id" -a "" --status open --append-notes "cloud launch failed $(date '+%F %H:%M') (exit $rc)" > /dev/null
