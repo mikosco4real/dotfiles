@@ -24,6 +24,13 @@ if [[ ! -d "$HUB_DIR/.beads" ]]; then
 fi
 export BEADS_DIR="$HUB_DIR/.beads"
 
+# bd reads beads.role from the CURRENT directory's git config, so outside ~/hub
+# every command warns "beads.role not configured". Inject it for this process
+# only via git's env-config; setting it with --global would also apply to any
+# team repo that adopts beads later, where the right role may be contributor.
+_n=${GIT_CONFIG_COUNT:-0}
+export "GIT_CONFIG_KEY_$_n=beads.role" "GIT_CONFIG_VALUE_$_n=maintainer" GIT_CONFIG_COUNT=$((_n + 1))
+
 stamp="${XDG_CACHE_HOME:-$HOME/.cache}/hub/last-pull"
 if [[ -z "${BDH_NO_PULL:-}" ]] &&
   { [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +"${BDH_PULL_MINUTES:-15}" 2> /dev/null)" ]]; }; then

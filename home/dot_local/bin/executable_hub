@@ -32,6 +32,11 @@ STATE="${XDG_STATE_HOME:-$HOME/.local/state}/hub"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hub"
 LAUNCHD_DISPATCH="dev.dotfiles.hub-dispatch"
 
+# bd reads beads.role from the current directory's git config; scope it to this
+# process (and the bdh/claude children it starts) instead of --global. See bdh.
+_n=${GIT_CONFIG_COUNT:-0}
+export "GIT_CONFIG_KEY_$_n=beads.role" "GIT_CONFIG_VALUE_$_n=maintainer" GIT_CONFIG_COUNT=$((_n + 1))
+
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 die() {
   printf 'hub: %s\n' "$*" >&2
