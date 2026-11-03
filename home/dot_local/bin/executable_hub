@@ -435,11 +435,16 @@ dispatch_run() {
   # would swallow a trailing positional prompt. cwd is the hub, so its
   # SessionStart hook primes the session. --strict-mcp-config drops every MCP
   # server, claude.ai connectors included (verified: mcp_servers = []).
+  # The allow rules pre-approve exactly the draft-PR path (push bd/<id>, open
+  # a draft) so auto mode's classifier cannot strand a finished bead; with
+  # --permission-prompts none there is nobody to approve anything else.
   printf 'Load the `hub` skill and follow its dispatch mode for these ready beads. Each bead has a "path": the local clone to branch from. Beads: %s\n' "$batch" |
     (cd "$HUB_DIR" && BEADS_ACTOR=agent:dispatch claude -p --agent orchestrator \
       --permission-mode auto --permission-prompts none --strict-mcp-config \
       --max-budget-usd "$HUB_DISPATCH_BUDGET_USD" --max-turns "$HUB_DISPATCH_MAX_TURNS" \
       --output-format json \
+      --allowedTools "Bash(bdh *)" "Bash(git -C * push -u origin bd/*)" "Bash(git push -u origin bd/*)" \
+      "Bash(gh pr create --draft *)" \
       --disallowedTools "Bash(gh pr merge *)" "Bash(gh pr ready *)" "Bash(git push --force *)" \
       "Bash(git push -f *)" "Bash(git push --force-with-lease *)" \
       "${dirs[@]}" --add-dir "$CACHE/wt") > "$logf" 2> "${logf%.json}.err" || rc=$?
