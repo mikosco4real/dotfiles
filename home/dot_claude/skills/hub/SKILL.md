@@ -98,8 +98,11 @@ For each bead:
 6. **Close and gate:**
    - `bdh close <id> -r "Draft PR: <url>"`.
    - For each dependent (`bdh dep list <id> --direction up --json`), run
-     `bdh gate create --type=gh:pr --await-id <pr-number> --repo <owner/name> --blocks <dependent>`.
-     The dependent then becomes ready only once the PR merges.
+     `bdh gate create --type=gh:pr --await-id <full PR URL> --blocks <dependent>`.
+     The dependent then becomes ready only once the PR merges. Use the **full
+     URL**: there is no `--repo` flag, and `bd gate check` runs
+     `gh pr view <await-id>` from whatever directory it is in, so a bare PR
+     number would be looked up in the hub repo instead of the project.
 7. **Clean up:** `git -C <path> worktree remove ~/.cache/hub/wt/<id>`. The branch stays,
    since it is pushed.
 8. **Failure handling.** A failure at the top allowed tier, or anything that needs a
