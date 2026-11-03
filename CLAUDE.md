@@ -47,6 +47,8 @@ These are therefore **real files, not symlinks**. Editing the deployed copy does
 - `home/dot_gitconfig.tmpl`, `home/dot_config/git/config.work.tmpl`
 - `home/dot_config/zsh/create_private_local.zsh.tmpl`
 - `home/dot_config/tmux/scripts/executable_setup-session.sh`
+- `home/dot_local/bin/executable_{bdh,hub}`, `home/dot_config/hub/env.tmpl`,
+  `home/private_Library/LaunchAgents/*.plist.tmpl`
 - everything in `home/.chezmoiscripts/`
 
 Everything else — kitty, ghostty, zed, starship, all the zsh fragments — is a
@@ -319,8 +321,9 @@ root marker, so it stays dormant until a project carries a
   `Catppuccin Mocha`, not `catppuccin-mocha`. `adjust-*` values are **deltas**,
   not targets. Validate with `ghostty +validate-config`.
 - **kitty** — fallback only. Keep it working.
-- **Claude Code** — only `~/.claude/agents/*.md` and
-  `~/.claude/skills/orchestrate/SKILL.md` are managed, as live symlinks. The
+- **Claude Code** — only `~/.claude/agents/*.md`,
+  `~/.claude/skills/orchestrate/SKILL.md` and `~/.claude/skills/hub/SKILL.md`
+  are managed, as live symlinks. The
   routing rules live **only** in `SKILL.md`; `agents/orchestrator.md` (run by
   `cco` = `claude --agent orchestrator`) just tells the session to load that
   skill, so don't copy the rules into it. Worker tiers are pinned by the
@@ -336,6 +339,53 @@ The Brewfile is **hand-maintained**. Never run `brew bundle dump` over it: it is
 platform-unaware and strips the `OS.mac?` / `OS.linux?` guards
 (homebrew/brew#22417). Also note `brew bundle --no-lock` was removed in Homebrew
 6.x and now makes brew print its usage and exit non-zero.
+
+## beads hub
+
+One private [beads](https://github.com/gastownhall/beads) database per
+**workspace**: `machineClass = "work"` machines use the work hub (a repo in the
+work org), personal machines the personal hub. It lives at `~/hub`, a git clone
+whose issues sync through `refs/dolt/data` on that repo's remote. Two prompts in
+`.chezmoi.toml.tmpl` select it, `hubRemote` and `hubDispatcher`; templates read
+both with `get .`, never `.hubRemote`, so a machine that has not re-run
+`chezmoi init` still renders (`make update` applies with `--init`).
+
+Rules that matter:
+
+- **Never export `BEADS_DIR`** from a shell rc. It overrides discovery for
+  every repo, so a repo that later gets its own `.beads/` would silently use
+  the hub. `bdh` (`~/.local/bin/bdh`) scopes it to one process; use that.
+- **Never `bd setup claude --global`.** The hub's SessionStart `bd prime` hook
+  is project-scoped (`~/hub/.claude/settings.json`), which is exactly what
+  keeps its 1–2k tokens out of every other session. Outside `~/hub` the `hub`
+  skill tells Claude to use `bdh`.
+- The protocol (labels, claim → `Bead:` line → close, tier notes, gates,
+  dispatch mode) lives **only** in `home/dot_claude/skills/hub/SKILL.md`, the
+  same single-source rule as the routing table in `orchestrate`.
+- **Exactly one dispatcher per hub** (`hubDispatcher = true`), or two machines
+  claim the same work between syncs. Only that machine gets the launchd agents.
+  `hub dispatch pause` is the kill switch; `hub dispatch status` shows runs and
+  estimated cost. Guardrail overrides go in `~/.config/hub/env.local`.
+- Dispatch runs use `--permission-mode auto --permission-prompts none`
+  (since v2.1.302 `-p` defaults to Manual and denies everything) and
+  `--strict-mcp-config`, which was verified to drop claude.ai connectors too
+  (`mcp_servers: []`). The prompt goes on stdin because `--add-dir` and
+  `--disallowedTools` are variadic and swallow a trailing positional argument.
+- `bin/` scripts target **bash 3.2**, the only bash on macOS and the one launchd
+  resolves: no `${x,,}`, no `mapfile`, and an empty `"${arr[@]}"` is an
+  unbound-variable error under `set -u` (use `${arr[@]+"${arr[@]}"}`).
+- `closed_at` is stored in UTC. Pass `--closed-after` an RFC3339 local midnight
+  with its offset (`hub report` does), not a bare date.
+- `hub bootstrap` refuses a remote with no `refs/dolt/data`: `bd bootstrap`
+  would otherwise create an empty database without a word.
+- The helper is `did`, not `done`, because `done` is a zsh reserved word.
+- Gas City (the beads team's orchestrator) was evaluated and not adopted: it
+  needs an always-on supervisor, routes models per pool rather than per task,
+  and v1.5.0/1.5.1 shipped one-way storage migrations.
+
+Not built yet: M365/Teams triage (plan: a local reader run with only M365
+*read* tools emits JSON, and shell code creates `triage`-labelled beads that are
+never `agent-ok`) and cloud handoff (`claude --cloud` plus a `gh:pr` gate).
 
 ## Distro support
 

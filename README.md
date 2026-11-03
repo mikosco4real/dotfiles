@@ -25,8 +25,9 @@ Nothing in this repo is machine-specific. Identity and secrets are supplied at
 | **Homebrew** | `~/.config/homebrew/Brewfile` | Package manifest, with `OS.mac?` / `OS.linux?` guards. |
 | **apt** | `~/.config/packages/debian.txt` | Debian/Ubuntu system packages. |
 | **pacman** | `~/.config/packages/arch.txt` | Arch packages. Long, because Arch uses no Homebrew. |
-| **AUR** | `~/.config/packages/arch-aur.txt` | The two tools with no official Arch package. |
+| **AUR** | `~/.config/packages/arch-aur.txt` | The tools with no official Arch package. |
 | **Claude Code** | `~/.claude/agents/`, `~/.claude/skills/orchestrate/` | Orchestrator that sends each subtask to the cheapest model that can do it (Haiku, Sonnet, Opus, Fable). `/orchestrate <task>` in any session, or `cco` for a whole orchestrator session. |
+| **beads hub** | `~/hub`, `~/.local/bin/{bdh,hub}`, `~/.config/hub/`, `~/.claude/skills/hub/` | One private [beads](https://github.com/gastownhall/beads) work graph per workspace (work or personal, by machine class). `did "…"` logs your own work, `todo "…"` adds a to-do, `hub report` drafts the daily update, and `hub dispatch` works `agent-ok` beads unattended on one machine. |
 
 Colour scheme is **Catppuccin Mocha** throughout. Fonts are **VictorMono Nerd
 Font** (terminal) and **JetBrainsMono Nerd Font** (Zed) — both are hard
@@ -57,6 +58,8 @@ You are prompted for six values, each with a default, so holding Enter is fine:
 | Work git org | matched against remote URLs |
 | Machine class | `personal` or `work` |
 | Desktop machine? | answering no skips all GUI apps and fonts |
+| beads hub git remote | this workspace's hub repo; blank = no hub. Defaults to the work org on work machines |
+| Run the hub dispatcher here? | `true` on exactly one machine per hub; installs the launchd agents |
 
 Answers are written to `~/.config/chezmoi/chezmoi.toml`, **not** to this repo.
 

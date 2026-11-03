@@ -11,6 +11,7 @@ SCRIPTS    := $(wildcard $(REPO_ROOT)/home/.chezmoiscripts/*.tmpl)
 ZSH_FRAGS  := $(wildcard $(REPO_ROOT)/home/dot_config/zsh/conf.d/*.zsh)
 # Real bash files deployed as-is (executable_ entries are never templates).
 SH_FILES   := $(wildcard $(REPO_ROOT)/home/dot_config/tmux/scripts/executable_*.sh) \
+              $(wildcard $(REPO_ROOT)/home/dot_local/bin/executable_*) \
               $(wildcard $(REPO_ROOT)/test/*.sh)
 # Which container `make test` builds. `make test DISTRO=arch` for the other one.
 DISTRO     ?= ubuntu
@@ -49,7 +50,7 @@ lint: ## shellcheck + shfmt on rendered scripts, zsh -n on every fragment
 	@fail=0; \
 	echo "--- shellcheck (rendered templates) ---"; \
 	for f in $(SCRIPTS); do \
-	  if ! out=$$($(CHEZMOI) execute-template < "$$f" 2>/tmp/_lint.err); then \
+	  if ! out=$$($(CHEZMOI) --source "$(REPO_ROOT)" execute-template < "$$f" 2>/tmp/_lint.err); then \
 	    printf "  FAIL %s (template did not render: %s)\n" "$$(basename $$f)" "$$(cat /tmp/_lint.err)"; \
 	    fail=1; continue; \
 	  fi; \
@@ -116,13 +117,23 @@ doctor: ## Check this machine's install is intact
 	@found=$$(find "$$HOME" -maxdepth 4 -xtype l -lname '*chezmoi*' 2>/dev/null); \
 	  [ -z "$$found" ] && echo "  none" || echo "$$found"
 	@echo "--- required tools ---"
-	@for t in chezmoi zsh nvim tmux starship fzf rg fd zoxide mise git; do \
+	@for t in chezmoi zsh nvim tmux starship fzf rg fd zoxide mise git bd; do \
 	  printf "  %-10s %s\n" "$$t" "$$(command -v $$t || echo MISSING)"; \
 	done
 	@echo "--- nvim >= 0.12 (vim.pack) ---"
 	@nvim --version 2>/dev/null | head -1 || echo "  nvim missing"
 	@echo "--- tree-sitter CLI (treesitter main branch needs it) ---"
 	@command -v tree-sitter >/dev/null 2>&1 && echo "  ok" || echo "  MISSING: brew install tree-sitter-cli"
+	@echo "--- beads hub ---"
+	@if [ ! -d "$$HOME/hub/.beads" ]; then \
+	  echo "  no hub at ~/hub (hub init creates one, hub bootstrap clones it)"; \
+	else \
+	  printf "  where     %s\n" "$$(BDH_NO_PULL=1 bdh where 2>/dev/null | head -1 || echo FAILED)"; \
+	  printf "  remote    %s\n" "$$(git -C "$$HOME/hub" ls-remote origin refs/dolt/data 2>/dev/null | grep -q . && echo 'refs/dolt/data present' || echo 'NO refs/dolt/data (bd dolt push?)')"; \
+	fi
+	@if launchctl print "gui/$$(id -u)/dev.dotfiles.hub-dispatch" >/dev/null 2>&1; then \
+	  echo "  dispatcher: launchd job loaded"; hub dispatch status 2>/dev/null | sed 's/^/    /'; \
+	else echo "  dispatcher: not on this machine"; fi
 
 clean: ## Remove local scratch files
 	rm -f /tmp/_lint.sh /tmp/_lint.err
