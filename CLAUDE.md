@@ -413,6 +413,12 @@ Rules that matter:
      the bead and gates dependents on the PR URL. A `Status: blocked` line hands
      the bead back as `human`.
 
+  `hub cloud` runs `claude --cloud` under `script(1)` (BSD and util-linux
+  syntax differ) so the printed `View: <session URL>` can be saved on the bead.
+  Not `| tee`: that makes stdout a pipe, and an interactive-only command may
+  refuse. A launch that prints no link and exits non-zero releases the claim.
+  `HUB_CLAUDE_BIN` swaps the binary for testing.
+
   Cloud sessions load only the repo's committed config, never `~/.claude`, so
   the brief is self-contained and there are no worker tiers there. A possible
   future headless path is a scheduled task's API trigger

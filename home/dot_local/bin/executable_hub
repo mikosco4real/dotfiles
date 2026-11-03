@@ -544,8 +544,37 @@ cloud_launch() {
   hbd update "$id" --add-label cloud --append-notes "cloud launched $(date '+%F %H:%M') from $branch" > /dev/null
   hbd dolt push > /dev/null 2>&1 || true
   log "starting a cloud session for $id from $branch. It keeps running if you close this terminal."
-  cd "$wt"
-  exec claude --cloud "$brief"
+
+  # Record the terminal with script(1) so the "View: <session URL>" line can be
+  # saved on the bead. Not `| tee`: that makes stdout a pipe, and an
+  # interactive-only command may then refuse. BSD (macOS) and util-linux
+  # script(1) take different arguments.
+  local cli="${HUB_CLAUDE_BIN:-claude}" transcript rc=0 session
+  mkdir -p "$STATE/cloud"
+  transcript="$STATE/cloud/$id.log"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    (cd "$wt" && script -q "$transcript" "$cli" --cloud "$brief") || rc=$?
+  elif script --version 2> /dev/null | grep -q util-linux; then
+    (cd "$wt" && script -q -e -c "$(printf '%q ' "$cli" --cloud "$brief")" "$transcript") || rc=$?
+  else
+    (cd "$wt" && "$cli" --cloud "$brief") || rc=$?
+  fi
+  session=$(grep -a -o -E 'https://claude\.ai/code/session_[A-Za-z0-9_-]+' "$transcript" 2> /dev/null | head -1 || true)
+  rm -f "$transcript"
+
+  if [[ -n "$session" ]]; then
+    hbd update "$id" --append-notes "cloud session: $session" > /dev/null
+    hbd dolt push > /dev/null 2>&1 || true
+    log "saved the session link on $id: $session"
+  elif ((rc != 0)); then
+    # Nothing started: release the claim so it shows as waiting again.
+    hbd update "$id" -a "" --status open --append-notes "cloud launch failed $(date '+%F %H:%M') (exit $rc)" > /dev/null
+    hbd dolt push > /dev/null 2>&1 || true
+    die "the cloud session did not start (exit $rc); $id is back to waiting. Fix the error above, then run: hub cloud $id"
+  else
+    log "no session link in the output; add it by hand: bdh update $id --append-notes \"cloud session: <url>\""
+  fi
+  return "$rc"
 }
 
 cloud_list() {
