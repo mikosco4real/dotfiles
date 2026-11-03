@@ -383,9 +383,11 @@ Rules that matter:
   needs an always-on supervisor, routes models per pool rather than per task,
   and v1.5.0/1.5.1 shipped one-way storage migrations.
 
-Not built yet: M365/Teams triage (plan: a local reader run with only M365
-*read* tools emits JSON, and shell code creates `triage`-labelled beads that are
-never `agent-ok`) and cloud handoff (`claude --cloud` plus a `gh:pr` gate).
+Not built yet: Teams triage and cloud handoff (`claude --cloud` plus a `gh:pr`
+gate). Triage **never reads work email**. That was decided deliberately, so
+don't add Outlook to it. Plan: a local reader run with only Teams *read* tools
+emits JSON, and shell code creates `triage`-labelled beads that are never
+`agent-ok`.
 
 ## Distro support
 
