@@ -36,6 +36,31 @@ a higher tier only when a mistake would risk security or data loss.
 
 If you are unsure between two tiers, take the lower one.
 
+## 2b. Where it runs: local or cloud
+
+Local is the default. You may **suggest** a Claude Code cloud session for a row only when
+**all four** of these hold:
+
+1. **Long:** many files, or a long build and test loop (roughly 20+ minutes of agent work).
+2. **Fully specified:** the acceptance criteria are written down, and nothing needs the
+   user to decide mid-way.
+3. **Self-contained in the GitHub repo:** it needs no local services or databases (Herd,
+   OrbStack containers), no `.env` or secrets, no VPN or on-prem access, and no unpushed
+   work. The cloud session clones from GitHub, so it sees none of these.
+4. **Independent:** it can land as its own PR, and nothing else in this request has to
+   wait for it now.
+
+Never suggest cloud for:
+- scouts, prose, mechanical edits, or anything short (a cloud VM's start-up costs more
+  than the work);
+- repos that aren't on GitHub (e.g. Bitbucket);
+- design work that needs back-and-forth.
+
+The benefit is that the task runs in parallel without tying up this session or this
+machine. It costs the same plan usage, and it runs on the cloud session's default model,
+not on this tier table, because cloud sessions load only the repo's committed config. Your
+`~/.claude` skills and agents don't exist there.
+
 ## 3. Process
 
 0. **Tracked work.** If the request names a bead (`w-…`/`p-…`), mentions the hub, or
@@ -46,12 +71,15 @@ If you are unsure between two tiers, take the lower one.
    not contents.
 2. **Show a routing table** before dispatching. Keep it compact:
 
-   | # | Task | Tier | Depends on | Files |
-   |---|---|---|---|---|
+   | # | Task | Tier | Where | Depends on | Files |
+   |---|---|---|---|---|---|
 
-   - No Fable rows: show the table and proceed immediately.
+   - No Fable or cloud rows: show the table and proceed immediately.
    - Any Fable row: show the table and **stop and ask the user to approve** before
      spawning anything. Say in one line why that task needs Fable rather than Opus.
+   - Any cloud row: the same stop. Say in one line why it suits the cloud (§2b). One
+     approval covers Fable and cloud rows together. A request in which the user wrote
+     "cloud:" for that task counts as approved.
 3. **Dispatch** (rules below).
 4. **Integrate.** Read the reports, then spot-check with `git diff --stat` and one test or
    lint run at the end. Don't re-read every changed file and don't redo the workers' work.
@@ -68,6 +96,15 @@ If you are unsure between two tiers, take the lower one.
   built, so a fresh spawn would pay to rebuild it.
 - Always pass `subagent_type` as one of the four agents above. **Never use `fork`** for
   routed work: forks run on your own model and ignore the tier.
+- **Approved cloud rows go through the hub. Never launch them yourself.**
+  - Never run `claude --cloud` from Bash: it is interactive-only and is refused there.
+  - Never set `isolation: "remote"` on an agent: it is gated, and it silently runs
+    locally instead.
+  - Instead, load the `hub` skill and file the row as a bead labelled `cloud` with
+    `repo:<owner>/<name>` and a self-contained description, or label an existing bead.
+    Then tell the user to run `hub cloud <id>` in a terminal, and carry on with the
+    local rows.
+  - The hub closes the bead when the cloud session's draft PR appears.
 
 ## 5. Brief template
 

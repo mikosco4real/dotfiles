@@ -255,13 +255,14 @@ cmd_report() {
   need_hub
 
   hbd dolt pull > /dev/null 2>&1 || log "pull failed; reporting from the local copy"
-  local from to closed wip blocked todos prs md
+  local from to closed wip blocked todos cloudwait prs md
   from=$(day_start "$day")
   to=$(day_start "$(next_day "$day")")
   closed=$(hbd list -s closed --closed-after "$from" --closed-before "$to" -n 0 --json 2> /dev/null || echo '[]')
   wip=$(hbd list -s in_progress -n 0 --json 2> /dev/null || echo '[]')
   blocked=$(hbd blocked --json 2> /dev/null || echo '[]')
   todos=$(hbd list -l human -n 0 --json 2> /dev/null || echo '[]')
+  cloudwait=$(hbd list -l cloud -s open -n 0 --json 2> /dev/null || echo '[]')
   prs='[]'
   if command -v gh > /dev/null 2>&1; then
     # macOS ships bash 3.2, where "${arr[@]}" of an EMPTY array is an unbound-
@@ -274,7 +275,8 @@ cmd_report() {
 
   md=$(jq -nr --arg day "$day" \
     --argjson closed "${closed:-[]}" --argjson wip "${wip:-[]}" \
-    --argjson blocked "${blocked:-[]}" --argjson todos "${todos:-[]}" --argjson prs "${prs:-[]}" '
+    --argjson blocked "${blocked:-[]}" --argjson todos "${todos:-[]}" --argjson prs "${prs:-[]}" \
+    --argjson cloudwait "${cloudwait:-[]}" '
     def repo: ((.labels // []) | map(select(startswith("repo:"))) | first // "repo:(no repo)") | ltrimstr("repo:");
     def who: if ((.labels // []) | index("manual")) then "" else " _(agent)_" end;
     def section(title; items; fmt):
@@ -285,7 +287,8 @@ cmd_report() {
     section("PRs merged"; $prs; "- [\(.repository.nameWithOwner)] \(.title) — \(.url)"),
     section("In progress"; $wip; "- [\(repo)] \(.title)"),
     section("Blocked"; $blocked; "- [\(repo)] \(.title) — blocked by \(.blocked_by | join(", "))"),
-    section("My to-dos"; $todos; "- \(.title)")
+    section("My to-dos"; $todos; "- \(.title)"),
+    section("Waiting to launch in the cloud"; $cloudwait; "- [\(repo)] \(.title) — hub cloud \(.id)")
   ')
 
   mkdir -p "$STATE/reports"
@@ -435,6 +438,161 @@ cmd_issues() {
   esac
 }
 
+# ─── cloud: hand a bead to a Claude Code cloud session ────────────────────────
+# `claude --cloud "<task>"` is INTERACTIVE ONLY in v2.1.317: refused under -p,
+# from scripts, and so from Claude's own Bash tool. A human therefore runs
+# `hub cloud <id>` in a terminal. The link back is a `Bead: <id>` line the
+# brief asks for in the draft PR's body; cloud_refresh (no LLM, every
+# dispatcher cycle) finds that PR, closes the bead and gates its dependents.
+# A cloud session loads only what the repo commits (no ~/.claude skills or
+# agents), so the brief has to carry everything.
+
+bead_json() { hbd show "$1" --json 2> /dev/null | jq -c 'if type == "array" then .[0] else . end'; }
+
+bead_repo() { jq -r '(.labels // []) | map(select(startswith("repo:"))) | first // "" | ltrimstr("repo:") | ascii_downcase' <<< "$1"; }
+
+# True when one line of a PR body, trimmed, starts with $2 (case-insensitive).
+# Line by line on purpose: jq's multiline regex flags differ between versions.
+body_has_line() {
+  jq -e --arg p "$2" '.body // "" | split("\n") | map(gsub("^\\s+|\\s+$"; "") | ascii_downcase)
+    | any(startswith($p | ascii_downcase))' <<< "$1" > /dev/null
+}
+
+cloud_brief() {
+  jq -r '
+    def repo: ((.labels // []) | map(select(startswith("repo:"))) | first // "") | ltrimstr("repo:");
+    "Task from the beads hub: \(.id) — \(.title)\n\n"
+    + ((.description // "") | if . == "" then "(No description: work from the title.)" else . end) + "\n"
+    + (if (.notes // "") != "" then "\nNotes from earlier attempts:\n\(.notes)\n" else "" end)
+    + "\nHow to work:\n"
+    + "- Repository: \(repo). You start on a clean branch made from the default branch for this task. Stay on it.\n"
+    + "- Follow the CLAUDE.md and conventions of this repository. Run its tests, linters and build before you finish.\n"
+    + "- Commit, push this branch, then open a DRAFT pull request with `gh pr create --draft`.\n"
+    + "- The pull request body MUST contain this exact line: Bead: \(.id)\n"
+    + (if (.external_ref // "") | test("^https://github.com/.+/issues/[0-9]+$")
+       then "- The pull request body must also contain the line: Closes \(.external_ref)\n" else "" end)
+    + "- If you cannot finish the task as described, still open the draft pull request, and put a line\n"
+    + "  `Status: blocked — <what is missing>` in its body.\n"
+    + "- Never merge, never mark the pull request ready for review, never force-push, never push to any other branch."
+  ' <<< "$1"
+}
+
+cloud_launch() {
+  local id="$1" dry="${2:-}" bead slug path wt branch base brief
+  bead=$(bead_json "$id")
+  [[ -n "$bead" && "$bead" != "null" ]] || die "no bead $id in the hub"
+  [[ "$(jq -r .status <<< "$bead")" != "closed" ]] || die "$id is already closed"
+  slug=$(bead_repo "$bead")
+  [[ -n "$slug" ]] || die "$id has no repo label; add one: bdh update $id --add-label repo:<owner>/<name>"
+  path=$(resolve_repo "$slug" || true)
+  [[ -n "$path" ]] || die "no local clone of $slug under $HUB_REPO_ROOTS"
+  git -C "$path" remote get-url origin 2> /dev/null | grep -q 'github\.com' ||
+    die "$slug is not on GitHub, and cloud sessions clone from GitHub"
+  wt="$CACHE/cloud/$id"
+  branch="bd/$id"
+  brief=$(cloud_brief "$bead")
+
+  if [[ -n "$dry" ]]; then
+    log "dry run. Would: worktree $wt on $branch from origin's default branch, push $branch to $slug,"
+    log "claim $id and label it cloud, then run \`claude --cloud\` from $wt with this brief:"
+    printf '%s\n' "$brief"
+    return 0
+  fi
+  [[ -t 0 && -t 1 ]] ||
+    die "run this in a terminal: \`claude --cloud\` is interactive-only, so neither a script nor Claude can start it"
+  need claude
+
+  git -C "$path" fetch -q origin
+  git -C "$path" remote set-head origin -a > /dev/null 2>&1 || true
+  base=$(git -C "$path" symbolic-ref --short refs/remotes/origin/HEAD) || die "cannot find origin's default branch in $path"
+  if [[ ! -e "$wt" ]]; then
+    mkdir -p "${wt%/*}"
+    if git -C "$path" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$path" worktree add -q "$wt" "$branch"
+    else
+      git -C "$path" worktree add -q -b "$branch" "$wt" "$base"
+    fi
+  fi
+  # The cloud session clones the GitHub remote at the CURRENT branch, so the
+  # branch must exist there; otherwise it silently starts from another commit.
+  git -C "$wt" push -q -u origin "$branch" || die "could not push $branch to $slug"
+  hbd update "$id" --claim > /dev/null || die "could not claim $id (someone else holds it?)"
+  hbd update "$id" --add-label cloud --append-notes "cloud launched $(date '+%F %H:%M') from $branch" > /dev/null
+  hbd dolt push > /dev/null 2>&1 || true
+  log "starting a cloud session for $id from $branch. It keeps running if you close this terminal."
+  cd "$wt"
+  exec claude --cloud "$brief"
+}
+
+cloud_list() {
+  local beads
+  beads=$(hbd list -l cloud -n 0 --json 2> /dev/null || echo '[]')
+  if [[ "$(jq length <<< "$beads")" -eq 0 ]]; then
+    log "no cloud beads"
+    return 0
+  fi
+  jq -r '.[] | (if .status == "in_progress" then "  running   " else "  waiting   " end) + "\(.id)  \(.title)"' <<< "$beads"
+  jq -e 'any(.[]; .status != "in_progress")' <<< "$beads" > /dev/null &&
+    log "launch a waiting one from a terminal: hub cloud <id>"
+  return 0
+}
+
+# Close in-progress cloud beads whose draft PR has appeared (`Bead: <id>` in its
+# body), gate their dependents on that PR, and drop the launch worktree. A PR
+# saying `Status: blocked` hands the bead back to you instead.
+cloud_refresh() {
+  local running
+  running=$(hbd list -l cloud -s in_progress -n 0 --json 2> /dev/null || echo '[]')
+  jq -c '.[]' <<< "$running" | while read -r bead; do
+    local id slug pr url path d
+    id=$(jq -r .id <<< "$bead")
+    slug=$(bead_repo "$bead")
+    [[ -n "$slug" ]] || continue
+    pr=$(gh pr list --repo "$slug" --state all --search "\"Bead: $id\" in:body" \
+      --json url,body,state --limit 10 2> /dev/null |
+      jq -c --arg m "bead: $id" '[.[] | select(.body // "" | split("\n")
+        | map(gsub("^\\s+|\\s+$"; "") | ascii_downcase) | index($m))] | first // empty')
+    [[ -n "$pr" ]] || continue
+    url=$(jq -r .url <<< "$pr")
+    if body_has_line "$pr" "status: blocked"; then
+      hbd update "$id" --append-notes "cloud: came back blocked, see $url" \
+        --remove-label cloud --add-label human -a "" --status open > /dev/null
+      log "$id came back blocked from the cloud ($url); now labelled human"
+    else
+      hbd close "$id" -r "Cloud draft PR: $url" > /dev/null
+      hbd dep list "$id" --direction up --json 2> /dev/null | jq -r '.[] | select(.status != "closed") | .id' |
+        while read -r d; do
+          hbd gate create --type=gh:pr --await-id "$url" --blocks "$d" --reason "Waits for $url to merge" > /dev/null &&
+            log "gated $d on $url"
+        done
+      log "closed $id: $url"
+    fi
+    path=$(resolve_repo "$slug" || true)
+    if [[ -n "$path" && -d "$CACHE/cloud/$id" ]]; then
+      git -C "$path" worktree remove --force "$CACHE/cloud/$id" 2> /dev/null || true
+    fi
+  done
+}
+
+cmd_cloud() {
+  ensure_path
+  need bd jq git
+  need_hub
+  case "${1:-}" in
+    "") cloud_list ;;
+    --refresh)
+      need gh
+      cloud_refresh
+      ;;
+    -*) die "cloud: unknown option $1 (--refresh, or a bead id)" ;;
+    *)
+      local dry=""
+      [[ "${2:-}" == "--dry-run" ]] && dry=1
+      cloud_launch "$1" "$dry"
+      ;;
+  esac
+}
+
 # ─── ui: look at the hub ──────────────────────────────────────────────────────
 # beads_viewer (bv) re-exports from bd on every launch, so it is never stale.
 # NEVER `bv --pages`: that wizard deploys the site to public hosting, which
@@ -537,6 +695,11 @@ dispatch_run() {
     issues_refresh || log "issue refresh failed"
     issues_assigned 1 || log "issue import failed"
   fi
+  # Close cloud beads whose draft PR has appeared, so their dependents get gated
+  # on that PR. Independent of HUB_IMPORT_ISSUES; also no LLM.
+  if [[ -z "$dry" ]] && command -v gh > /dev/null 2>&1; then
+    cloud_refresh || log "cloud refresh failed"
+  fi
 
   local today runs
   today=$(date +%F)
@@ -548,10 +711,11 @@ dispatch_run() {
 
   hbd gate check > /dev/null 2>&1 || log "gate check failed (is gh logged in?)"
 
-  # Opt-in only: agent-ok, and never anything marked human or triage.
+  # Opt-in only: agent-ok, and never anything marked human or triage. cloud
+  # beads are never worked locally: you launch them with `hub cloud <id>`.
   local ready
   ready=$(hbd ready --json -l agent-ok -n 50 2> /dev/null | jq -c '
-    [.[] | select((.labels // []) | (index("human") or index("triage")) | not)]')
+    [.[] | select((.labels // []) | (index("human") or index("triage") or index("cloud")) | not)]')
   if [[ "$(jq length <<< "$ready")" -eq 0 ]]; then
     log "nothing ready"
     return 0
@@ -640,6 +804,8 @@ dispatch_status() {
   cost_today=$(find "$STATE/logs" -name "$today-*.json" -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
   cost_week=$(find "$STATE/logs" -name '*.json' -mtime -7 -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
   printf 'est. cost:   ~$%s today, ~$%s last 7 days\n' "$cost_today" "$cost_week"
+  printf 'cloud:       %s\n' "$(hbd list -l cloud -n 0 --json 2> /dev/null | jq -r '
+    "\(map(select(.status != "in_progress")) | length) waiting to launch (hub cloud), \(map(select(.status == "in_progress")) | length) running"' 2> /dev/null || echo unknown)"
   last=$(find "$STATE/logs" -name '*.json' 2> /dev/null | sort | tail -1)
   if [[ -n "$last" ]]; then
     printf 'last run:    %s — %s\n' "$(basename "$last" .json)" \
@@ -693,6 +859,9 @@ hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
   hub issues [--import]         open issues assigned to you that aren't in the hub yet
   hub issues --refresh          close beads whose GitHub issue was closed
   hub ui [--web]                browse the hub: terminal UI, or a live page on localhost
+  hub cloud                     cloud beads: waiting to launch, and running
+  hub cloud <id> [--dry-run]    start a Claude Code cloud session for a bead (in a terminal)
+  hub cloud --refresh           close cloud beads whose draft PR has appeared
   hub dispatch run [--dry-run]  work ready agent-ok beads unattended (launchd runs this)
   hub dispatch pause|resume     kill switch
   hub dispatch status           runs today, estimated cost, last result
@@ -725,6 +894,10 @@ case "${1:-help}" in
   ui)
     shift
     cmd_ui "$@"
+    ;;
+  cloud)
+    shift
+    cmd_cloud "$@"
     ;;
   help | -h | --help) usage ;;
   *)

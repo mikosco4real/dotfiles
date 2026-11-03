@@ -396,11 +396,32 @@ Rules that matter:
   needs an always-on supervisor, routes models per pool rather than per task,
   and v1.5.0/1.5.1 shipped one-way storage migrations.
 
-Not built yet: Teams triage and cloud handoff (`claude --cloud` plus a `gh:pr`
-gate). Triage **never reads work email**. That was decided deliberately, so
-don't add Outlook to it. Plan: a local reader run with only Teams *read* tools
-emits JSON, and shell code creates `triage`-labelled beads that are never
-`agent-ok`.
+- **Cloud sessions are suggested by Claude and launched by you.** `orchestrate`
+  §2b lets Claude propose cloud for long, fully specified, GitHub-self-contained,
+  independent rows; they need approval like Fable. Three verified constraints
+  (v2.1.317) shape the plumbing:
+  1. `claude --cloud "<task>"` is **interactive-only**: it is refused under `-p`,
+     from scripts and from Claude's Bash tool. Headless creation exists only for
+     self-hosted environments. So the user runs `hub cloud <id>`, which pushes
+     a clean `bd/<id>` branch (the session clones the GitHub remote at the
+     current branch) and starts the session from a worktree.
+  2. The Agent tool's `isolation: "remote"` is undocumented and gated, and it
+     silently runs in a local worktree instead. Never rely on it.
+  3. There is no scripted way to read a cloud session's status or result. The
+     link back is a `Bead: <id>` line the brief asks for in the draft PR body.
+     `hub cloud --refresh` (no LLM, every dispatcher cycle) finds the PR, closes
+     the bead and gates dependents on the PR URL. A `Status: blocked` line hands
+     the bead back as `human`.
+
+  Cloud sessions load only the repo's committed config, never `~/.claude`, so
+  the brief is self-contained and there are no worker tiers there. A possible
+  future headless path is a scheduled task's API trigger
+  (`/v1/claude_code/routines/<id>/fire`, research preview); it isn't used.
+
+Not built yet: Teams triage. It **never reads work email**. That was decided
+deliberately, so don't add Outlook to it. Plan: a local reader run with only
+Teams *read* tools emits JSON, and shell code creates `triage`-labelled beads
+that are never `agent-ok`.
 
 ## Distro support
 
