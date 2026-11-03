@@ -15,7 +15,7 @@ HUB_REMOTE="${HUB_REMOTE:-}"
 HUB_PREFIX="${HUB_PREFIX:-p}"
 HUB_GH_OWNER="${HUB_GH_OWNER:-}"
 HUB_REPO_ROOTS="${HUB_REPO_ROOTS:-$HOME/Projects}"
-HUB_TEMPLATE="${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-template.md"
+HUB_TEMPLATE="${HUB_TEMPLATE:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-template.md}"
 
 # Guardrails. Override any of these in ~/.config/hub/env.local. On a claude.ai
 # subscription nothing is billed per run; the dollar figures are Claude Code's
@@ -161,12 +161,16 @@ EOF
   # Project-scoped SessionStart hook (bd prime) + bd's managed CLAUDE.md block.
   # Never --global: bd prime would then inject 1-2k tokens into every session.
   bd setup claude > /dev/null
-  printf '.claude/settings.local.json\n' > .gitignore
+  # .beads.gate.lock is a runtime lock bd drops at the repo root.
+  printf '.claude/settings.local.json\n.beads.gate.lock\n' > .gitignore
 
   telemetry_off
   git add -A
   git commit -q -m "Initialise beads hub (${HUB_WORKSPACE:-unknown})"
-  gh repo create "$slug" --private --source . --push
+  # Not --source/--push: those try to add an `origin` remote, which already
+  # exists (bd init needed it to configure the Dolt remote), and then fail.
+  gh repo create "$slug" --private > /dev/null
+  git push -q -u origin main
   bd dolt push
   log "hub ready at $HUB_DIR. Other machines: \`chezmoi apply\` (or \`hub bootstrap\`)."
 }
@@ -280,7 +284,14 @@ cmd_report() {
 
   mkdir -p "$STATE/reports"
   out="$STATE/reports/$day.md"
-  if [[ -n "$raw" ]] || ! command -v claude > /dev/null 2>&1 || [[ ! -r "$HUB_TEMPLATE" ]]; then
+  if [[ -z "$raw" ]] && ! command -v claude > /dev/null 2>&1; then
+    log "claude not on PATH; saving the raw summary"
+    raw=1
+  elif [[ -z "$raw" && ! -r "$HUB_TEMPLATE" ]]; then
+    log "no report template at $HUB_TEMPLATE; saving the raw summary"
+    raw=1
+  fi
+  if [[ -n "$raw" ]]; then
     printf '%s\n' "$md" > "$out"
   else
     # No tools, no MCP servers, nothing to approve: this run only rewrites text.
