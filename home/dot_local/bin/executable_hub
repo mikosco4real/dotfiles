@@ -477,6 +477,17 @@ cloud_brief() {
   ' <<< "$1"
 }
 
+# Where to launch from: your own clone (found under HUB_REPO_ROOTS), else a
+# cached partial clone. The cloud session clones from GitHub regardless; the
+# local copy only creates the bd/<id> branch and gives `claude --cloud` a repo
+# to start in, so it needs no checkout of yours.
+cloud_repo_path() {
+  local path
+  path=$(resolve_repo "$1" || true)
+  [[ -z "$path" && -e "$CACHE/repos/$1/.git" ]] && path="$CACHE/repos/$1"
+  printf '%s\n' "$path"
+}
+
 cloud_launch() {
   local id="$1" dry="${2:-}" bead slug path wt branch base brief
   bead=$(bead_json "$id")
@@ -484,23 +495,36 @@ cloud_launch() {
   [[ "$(jq -r .status <<< "$bead")" != "closed" ]] || die "$id is already closed"
   slug=$(bead_repo "$bead")
   [[ -n "$slug" ]] || die "$id has no repo label; add one: bdh update $id --add-label repo:<owner>/<name>"
-  path=$(resolve_repo "$slug" || true)
-  [[ -n "$path" ]] || die "no local clone of $slug under $HUB_REPO_ROOTS"
-  git -C "$path" remote get-url origin 2> /dev/null | grep -q 'github\.com' ||
-    die "$slug is not on GitHub, and cloud sessions clone from GitHub"
+  path=$(cloud_repo_path "$slug")
+  if [[ -n "$path" ]]; then
+    git -C "$path" remote get-url origin 2> /dev/null | grep -q 'github\.com' ||
+      die "$slug is not on GitHub, and cloud sessions clone from GitHub"
+  fi
   wt="$CACHE/cloud/$id"
   branch="bd/$id"
   brief=$(cloud_brief "$bead")
 
   if [[ -n "$dry" ]]; then
-    log "dry run. Would: worktree $wt on $branch from origin's default branch, push $branch to $slug,"
-    log "claim $id and label it cloud, then run \`claude --cloud\` from $wt with this brief:"
+    local from="use $path"
+    [[ -n "$path" ]] || from="clone $slug to $CACHE/repos/$slug"
+    log "dry run. Would: $from, worktree $wt on $branch"
+    log "from origin's default branch, push $branch, claim $id and label it cloud, then run \`claude --cloud\` with:"
     printf '%s\n' "$brief"
     return 0
   fi
   [[ -t 0 && -t 1 ]] ||
     die "run this in a terminal: \`claude --cloud\` is interactive-only, so neither a script nor Claude can start it"
   need claude
+
+  if [[ -z "$path" ]]; then
+    need gh
+    path="$CACHE/repos/$slug"
+    log "no clone of $slug under $HUB_REPO_ROOTS; making a lightweight one at $path"
+    mkdir -p "${path%/*}"
+    # Partial clone: full history, file contents fetched on demand. Fast even
+    # for big repos, and enough to branch from.
+    gh repo clone "$slug" "$path" -- -q --filter=blob:none || die "could not clone $slug (no access, or not on GitHub)"
+  fi
 
   git -C "$path" fetch -q origin
   git -C "$path" remote set-head origin -a > /dev/null 2>&1 || true
@@ -567,7 +591,7 @@ cloud_refresh() {
         done
       log "closed $id: $url"
     fi
-    path=$(resolve_repo "$slug" || true)
+    path=$(cloud_repo_path "$slug")
     if [[ -n "$path" && -d "$CACHE/cloud/$id" ]]; then
       git -C "$path" worktree remove --force "$CACHE/cloud/$id" 2> /dev/null || true
     fi
