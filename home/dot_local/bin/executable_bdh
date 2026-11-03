@@ -11,7 +11,7 @@
 # Pushes need no help: the hub sets dolt.auto-push in .beads/config.yaml.
 set -euo pipefail
 
-HUB_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/hub/env"
+HUB_ENV="${HUB_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/env}"
 # shellcheck source=/dev/null
 [[ -r "$HUB_ENV" ]] && source "$HUB_ENV"
 # shellcheck source=/dev/null
@@ -40,5 +40,18 @@ if [[ -z "${BDH_NO_PULL:-}" ]] &&
   touch "$stamp"
   bd dolt pull > /dev/null 2>&1 || echo "bdh: pull failed; using the local copy" >&2
 fi
+
+# Tracker sync is two-way by default: `bd github sync` would push every hub
+# bead (did logs and to-dos included) into one repo as issues, and its pull
+# imports a repo's entire history. Selected issues come in via `hub issue`.
+case "${1:-} ${2:-}" in
+  "github sync" | "github push" | "gitlab sync" | "gitlab push" | "jira sync" | "jira push" | "linear sync" | "linear push")
+    if [[ -z "${BDH_ALLOW_TRACKER_SYNC:-}" ]]; then
+      echo "bdh: refusing \`bd $1 $2\` on the hub: it is two-way by default and would push every bead to one repo." >&2
+      echo "     Import selected issues with \`hub issue <url>\` or \`hub issues --import\`. Override: BDH_ALLOW_TRACKER_SYNC=1" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 exec bd "$@"

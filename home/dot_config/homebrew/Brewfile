@@ -94,6 +94,7 @@ brew "nerdfetch"
 # listed explicitly rather than relied on as a transitive dependency.
 brew "beads"
 brew "dolt"
+brew "beads_viewer"             # `bv`, the hub UI behind `hub ui` (homebrew-core)
 
 # Cloud / infra
 brew "awscli"

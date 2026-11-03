@@ -4,7 +4,7 @@
 # shell rc files: everything it needs comes from ~/.config/hub/env.
 set -euo pipefail
 
-HUB_ENV="${XDG_CONFIG_HOME:-$HOME/.config}/hub/env"
+HUB_ENV="${HUB_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/env}"
 # shellcheck source=/dev/null
 [[ -r "$HUB_ENV" ]] && source "$HUB_ENV"
 # shellcheck source=/dev/null
@@ -166,8 +166,9 @@ EOF
   # Project-scoped SessionStart hook (bd prime) + bd's managed CLAUDE.md block.
   # Never --global: bd prime would then inject 1-2k tokens into every session.
   bd setup claude > /dev/null
-  # .beads.gate.lock is a runtime lock bd drops at the repo root.
-  printf '.claude/settings.local.json\n.beads.gate.lock\n' > .gitignore
+  # .beads.gate.lock is a runtime lock bd drops at the repo root;
+  # .beads/issues.jsonl is the export beads_viewer (`hub ui`) regenerates.
+  printf '.claude/settings.local.json\n.beads.gate.lock\n.beads/issues.jsonl\n' > .gitignore
 
   telemetry_off
   git add -A
@@ -319,6 +320,145 @@ cmd_report() {
   fi
 }
 
+# ─── issues: selected GitHub issues into the hub ──────────────────────────────
+# Deliberately NOT `bd github sync`. That is two-way by default (it would push
+# every hub bead, did logs and to-dos included, into one repo as issues),
+# handles one repo per config, imports a repo's whole history (46 beads for one
+# open issue, when tried), adds no repo: label, and wants its token stored in
+# the synced database. This imports exactly the issues you pick, one bead each.
+
+# https://github.com/o/r/issues/N or o/r#N  ->  https://github.com/o/r/issues/N
+issue_url_of() {
+  case "$1" in
+    https://github.com/*/*/issues/*) printf '%s\n' "${1%%[?#]*}" ;;
+    */*#*) printf 'https://github.com/%s/issues/%s\n' "${1%%#*}" "${1##*#}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Import one issue. $1 = URL, $2 = "agent-ok" to also queue it for dispatch.
+import_issue() {
+  local url="$1" extra="${2:-}" existing data state slug labels id
+  existing=$(hbd list --all -n 0 --external-ref "$url" --json 2> /dev/null | jq -r '.[0].id // empty')
+  if [[ -n "$existing" ]]; then
+    if [[ "$extra" == "agent-ok" ]]; then
+      hbd update "$existing" --add-label agent-ok > /dev/null
+      log "$existing already in the hub; labelled agent-ok"
+    else
+      log "$existing already in the hub ($url)"
+    fi
+    return 0
+  fi
+  data=$(gh issue view "$url" --json number,title,body,state,labels) || {
+    log "cannot read $url (no access, or not an issue)"
+    return 1
+  }
+  state=$(jq -r .state <<< "$data")
+  if [[ "$state" != "OPEN" ]]; then
+    log "$url is $state; not importing"
+    return 0
+  fi
+  slug=$(slug_of "${url%/issues/*}")
+  # GitHub labels are copied ONLY with a gh: prefix. Copied verbatim, anyone
+  # able to label an issue could add agent-ok (or human) and steer the hub.
+  labels=$(jq -r --arg s "$slug" --arg x "$extra" '
+    ["repo:" + $s, "gh-issue"] + (if $x == "" then [] else [$x] end)
+    + [.labels[].name | "gh:" + (ascii_downcase | gsub("[^a-z0-9._-]+"; "-"))]
+    | unique | join(",")' <<< "$data")
+  id=$(hbd create "$(jq -r .title <<< "$data")" \
+    -t "$(jq -r 'if any(.labels[].name; ascii_downcase == "bug") then "bug" else "task" end' <<< "$data")" \
+    -l "$labels" --external-ref "$url" \
+    -d "$(jq -r --arg u "$url" '"Imported from \($u)\n\n" + ((.body // "") | if length > 6000 then .[0:6000] + "\n\n[truncated; full text on GitHub]" else . end)' <<< "$data")" \
+    --silent)
+  log "imported $id  $(jq -r .title <<< "$data")  ($slug#$(jq -r .number <<< "$data"))"
+}
+
+cmd_issue() {
+  ensure_path
+  need gh jq bd
+  need_hub
+  local ref="" extra="" url
+  while (($#)); do
+    case "$1" in
+      --agent-ok) extra=agent-ok ;;
+      -*) die "issue: unknown option $1" ;;
+      *) ref="$1" ;;
+    esac
+    shift
+  done
+  [[ -n "$ref" ]] || die "usage: hub issue <issue URL | owner/repo#N> [--agent-ok]"
+  url=$(issue_url_of "$ref") || die "not a GitHub issue reference: $ref"
+  import_issue "$url" "$extra"
+}
+
+# Open issues assigned to you (in HUB_GH_OWNER when set) that are not in the
+# hub yet. Prints them; --import brings them all in (never with agent-ok).
+issues_assigned() {
+  local do_import="$1" owner_flag=() found refs
+  [[ -n "$HUB_GH_OWNER" ]] && owner_flag=(--owner "$HUB_GH_OWNER")
+  found=$(gh search issues --assignee=@me --state=open ${owner_flag[@]+"${owner_flag[@]}"} \
+    --json url,title,repository --limit 100) || return 1
+  refs=$(hbd list --all -n 0 --json 2> /dev/null | jq -c '[.[].external_ref // empty]')
+  jq -r --argjson have "$refs" '.[] | select(.url as $u | $have | index($u) | not) | .url' <<< "$found" |
+    while read -r url; do
+      if [[ -n "$do_import" ]]; then
+        import_issue "$url" || true
+      else
+        jq -r --arg u "$url" '.[] | select(.url == $u) | "  new  \(.repository.nameWithOwner)#\(.url | split("/") | last)  \(.title)"' <<< "$found"
+      fi
+    done
+}
+
+# Close open gh-issue beads whose issue was closed on GitHub (fixed elsewhere,
+# or merged via a PR that said "Closes …"). In-progress beads are left alone.
+issues_refresh() {
+  local open id url state
+  open=$(hbd list -l gh-issue -s open -n 0 --json 2> /dev/null || echo '[]')
+  jq -r '.[] | select(.external_ref) | "\(.id) \(.external_ref)"' <<< "$open" |
+    while read -r id url; do
+      state=$(gh issue view "$url" --json state -q .state 2> /dev/null) || continue
+      if [[ "$state" != "OPEN" ]]; then
+        hbd close "$id" -r "Closed on GitHub ($state): $url" > /dev/null && log "closed $id: $url is $state"
+      fi
+    done
+}
+
+cmd_issues() {
+  ensure_path
+  need gh jq bd
+  need_hub
+  case "${1:-}" in
+    "") issues_assigned "" ;;
+    --import) issues_assigned 1 ;;
+    --refresh) issues_refresh ;;
+    *) die "issues: unknown option $1 (--import | --refresh)" ;;
+  esac
+}
+
+# ─── ui: look at the hub ──────────────────────────────────────────────────────
+# beads_viewer (bv) re-exports from bd on every launch, so it is never stale.
+# NEVER `bv --pages`: that wizard deploys the site to public hosting, which
+# would publish every bead in the hub.
+cmd_ui() {
+  ensure_path
+  need bv
+  need_hub
+  if [[ "${1:-}" != "--web" ]]; then
+    exec bv --db "$HUB_DIR/.beads"
+  fi
+  local site="$CACHE/pages"
+  mkdir -p "$site"
+  bv --db "$HUB_DIR/.beads" --export-pages "$site" --pages-title "Hub (${HUB_WORKSPACE:-?})" > /dev/null
+  # Regenerate on every bead change; preview live-reloads. Both stop together.
+  # UI_WATCHER is global on purpose: the EXIT trap runs after this function
+  # has returned, when a local would already be gone (and kill would get "").
+  bv --db "$HUB_DIR/.beads" --export-pages "$site" --watch-export > /dev/null 2>&1 &
+  UI_WATCHER=$!
+  trap 'kill "$UI_WATCHER" 2> /dev/null' EXIT INT TERM
+  log "serving $site on localhost (Ctrl-C to stop)"
+  bv --db "$HUB_DIR/.beads" --preview-pages "$site"
+}
+
 # ─── dispatch: work agent-ok beads unattended ─────────────────────────────────
 within_hours() {
   local d h
@@ -387,6 +527,17 @@ dispatch_run() {
   echo $$ > "$DISPATCH_LOCK/pid"
   trap 'rm -rf "$DISPATCH_LOCK"' EXIT
 
+  hbd dolt pull > /dev/null 2>&1 || log "pull failed; dispatching from the local copy"
+
+  # Keep GitHub issues in step before looking for work: import new issues
+  # assigned to you (never agent-ok: you still choose what gets dispatched) and
+  # close beads whose issue was closed upstream, so nothing already fixed is
+  # worked. No LLM involved. HUB_IMPORT_ISSUES=0 in env.local turns it off.
+  if [[ "${HUB_IMPORT_ISSUES:-1}" == 1 && -z "$dry" ]] && command -v gh > /dev/null 2>&1; then
+    issues_refresh || log "issue refresh failed"
+    issues_assigned 1 || log "issue import failed"
+  fi
+
   local today runs
   today=$(date +%F)
   runs=$(find "$STATE/runs" -name "$today-*" 2> /dev/null | wc -l | tr -d ' ')
@@ -395,7 +546,6 @@ dispatch_run() {
     return 0
   fi
 
-  hbd dolt pull > /dev/null 2>&1 || log "pull failed; dispatching from the local copy"
   hbd gate check > /dev/null 2>&1 || log "gate check failed (is gh logged in?)"
 
   # Opt-in only: agent-ok, and never anything marked human or triage.
@@ -539,6 +689,10 @@ hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
   hub bootstrap                 clone the existing hub onto this machine (chezmoi runs this)
   hub report [--raw] [--date D] build today's summary draft (--raw: skip the Sonnet polish)
   hub report show               print the latest draft and copy it to the clipboard
+  hub issue <url|o/r#N> [--agent-ok]  import one GitHub issue as a bead
+  hub issues [--import]         open issues assigned to you that aren't in the hub yet
+  hub issues --refresh          close beads whose GitHub issue was closed
+  hub ui [--web]                browse the hub: terminal UI, or a live page on localhost
   hub dispatch run [--dry-run]  work ready agent-ok beads unattended (launchd runs this)
   hub dispatch pause|resume     kill switch
   hub dispatch status           runs today, estimated cost, last result
@@ -559,6 +713,18 @@ case "${1:-help}" in
   dispatch)
     shift
     cmd_dispatch "$@"
+    ;;
+  issue)
+    shift
+    cmd_issue "$@"
+    ;;
+  issues)
+    shift
+    cmd_issues "$@"
+    ;;
+  ui)
+    shift
+    cmd_ui "$@"
     ;;
   help | -h | --help) usage ;;
   *)

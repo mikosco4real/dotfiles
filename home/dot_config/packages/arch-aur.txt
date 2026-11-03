@@ -21,3 +21,6 @@ nerdfetch
 # docs name `beads-git`, but that package is stale (last updated Feb 2026);
 # `beads-bin` tracks releases (1.3.2-1 when this was added).
 beads-bin
+
+# beads_viewer (`bv`), the terminal/web UI behind `hub ui`. Not in core/extra.
+beads-viewer-bin

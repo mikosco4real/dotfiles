@@ -379,6 +379,19 @@ Rules that matter:
 - `hub bootstrap` refuses a remote with no `refs/dolt/data`: `bd bootstrap`
   would otherwise create an empty database without a word.
 - The helper is `did`, not `done`, because `done` is a zsh reserved word.
+- **GitHub issues come in through `hub issue` / `hub issues`, never
+  `bd github sync`.** That command is two-way by default, so it would push
+  every bead into one repo as issues. Its pull imported a repo's entire
+  history (46 beads for one open issue), and it wants its token stored in the
+  synced database. `bdh` refuses tracker `sync`/`push`. GitHub labels are
+  copied only as `gh:<label>`: copied verbatim, anyone able to label an issue
+  `agent-ok` could queue work. The dispatcher imports issues assigned to you
+  and closes beads whose issue closed upstream before each run
+  (`HUB_IMPORT_ISSUES=0` turns it off).
+- `hub ui` is beads_viewer (`bv`). It re-exports from bd on launch, so the
+  untracked `.beads/issues.jsonl` it writes is gitignored in the hub. Never
+  `bv --pages`: that wizard deploys the site to public hosting. `hub ui --web`
+  serves on 127.0.0.1 only.
 - Gas City (the beads team's orchestrator) was evaluated and not adopted: it
   needs an always-on supervisor, routes models per pool rather than per task,
   and v1.5.0/1.5.1 shipped one-way storage migrations.
