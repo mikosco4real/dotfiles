@@ -371,6 +371,23 @@ Rules that matter:
   `--strict-mcp-config`, which was verified to drop claude.ai connectors too
   (`mcp_servers: []`). The prompt goes on stdin because `--add-dir` and
   `--disallowedTools` are variadic and swallow a trailing positional argument.
+- **Seeing who works what.** Each dispatch run passes `--session-id <uuid>`
+  and records it in `~/.local/state/hub/runs/<stamp>`. The transcript is then
+  `~/.claude/projects/<cwd with every non-alphanumeric as ->/<uuid>.jsonl`
+  (verified, v2.1.317). `hub dispatch status` reads it for the model, any
+  worker agents and the latest step, and `hub dispatch watch` follows it.
+  Claims are `agent:dispatch`, and the `hub` skill has the session add the note
+  `worker=<agent>` on each bead, so `bdh show` answers the question after the
+  run has gone.
+- **bd refuses to reassign another actor's in-progress claim** (v1.3.2), so
+  a plain `bdh update <id> -a ""` on a dispatcher's bead fails. After each
+  run, the dispatcher releases claims it left behind (budget cap, crash) as
+  `agent:dispatch`, handing them back as `human`. A claim with no live run
+  shows as "stale claim" in status; release it with `--force`, which bd
+  documents for abandoned claims.
+- `did`/`todo` re-source `45-beads.zsh` themselves when its mtime changes. A
+  shell opened before an update otherwise keeps the old functions: a
+  pre-`did <id>` copy logged a bead titled `w-a8c` instead of closing w-a8c.
 - `bin/` scripts target **bash 3.2**, the only bash on macOS and the one launchd
   resolves: no `${x,,}`, no `mapfile`, and an empty `"${arr[@]}"` is an
   unbound-variable error under `set -u` (use `${arr[@]+"${arr[@]}"}`).
@@ -427,7 +444,7 @@ Rules that matter:
   syntax differ) so the printed `View: <session URL>` can be saved on the bead.
   Not `| tee`: that makes stdout a pipe, and an interactive-only command may
   refuse. A launch that prints no link and exits non-zero releases the claim.
-  `HUB_CLAUDE_BIN` swaps the binary for testing.
+  `HUB_CLAUDE_BIN` swaps the binary for testing, here and in dispatch runs.
 
   **Permission mode is the trap.** A cloud session started in Accept edits
   edits files freely but stops at `git push` / `gh pr create` for an

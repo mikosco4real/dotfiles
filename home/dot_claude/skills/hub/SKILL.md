@@ -87,7 +87,10 @@ Use this when the user approved a cloud row (see `orchestrate` §2b) or asked fo
 2. **Pick the tier.** Follow the `orchestrate` routing table, but read the bead's notes
    first. Lines like `tier=opus attempt=1 blocked: …` mean start **above** the highest
    tier that already failed. A `tier:` label is a floor, not a ceiling.
-3. **Brief.** Add `Bead: <id>` to the brief. Workers don't touch beads.
+3. **Brief.** Add `Bead: <id>` to the brief. Workers don't touch beads. Record who
+   works it, so `bdh show <id>` answers that after the session has gone:
+   `bdh update <id> --append-notes "worker=<agent, e.g. worker-sonnet>"`, or
+   `worker=inline (<your model>)` when you do it yourself.
 4. **Integrate the report:**
    - `done` and verified: `bdh close <id> -r "<one line; PR URL if any>"`.
    - `blocked` or failed verification: run
@@ -116,7 +119,8 @@ mode either, because nobody is there to approve it.
 
 For each bead:
 
-1. **Claim it.** Read its description and notes, then choose the tier (step 2 above).
+1. **Claim it.** Read its description and notes, choose the tier (step 2 above) and
+   record the `worker=` note (step 3).
 2. **Fable.** If the bead needs Fable and has no `fable-ok` label, do **not** spawn
    Fable. Instead:
    1. `bdh gate create --type=human --blocks <id> --reason "Approve Fable: <one line why Opus is not enough>"`

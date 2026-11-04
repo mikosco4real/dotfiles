@@ -810,6 +810,79 @@ resolve_repo() {
   [[ -n "$path" ]] && printf '%s\n' "$path"
 }
 
+# --- what a dispatch run is doing ---------------------------------------------
+# Each run records its Claude session id in $STATE/runs/<stamp>, and Claude Code
+# keeps that session's transcript at
+# <config>/projects/<cwd with every non-alphanumeric as ->/<session id>.jsonl
+# (verified on v2.1.317). The live run's stamp is in $STATE/dispatch.lock/run.
+CLAUDE_PROJECTS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+
+# "<pid> <stamp>" of the dispatch run in progress. The stamp is empty while the
+# run is still syncing (before it has picked any beads).
+live_run() {
+  local pid stamp="" last
+  pid=$(cat "$STATE/dispatch.lock/pid" 2> /dev/null) || return 1
+  kill -0 "$pid" 2> /dev/null || return 1
+  stamp=$(cat "$STATE/dispatch.lock/run" 2> /dev/null || true)
+  if [[ -z "$stamp" ]]; then
+    # Runs started before the stamp was recorded: the newest run with no result yet.
+    last=$(find "$STATE/runs" -type f 2> /dev/null | sort | tail -1)
+    [[ -n "$last" && ! -s "$STATE/logs/${last##*/}.json" ]] && stamp=${last##*/}
+  fi
+  printf '%s %s\n' "$pid" "$stamp"
+}
+
+# Transcript of the run <stamp>: by its recorded session id, else (older runs)
+# the newest hub-dir transcript written since that run started.
+run_transcript() {
+  local runf="$STATE/runs/$1" sid t dir
+  [[ -n "$1" && -f "$runf" ]] || return 1
+  sid=$(head -1 "$runf" 2> /dev/null || true)
+  if [[ -n "$sid" ]]; then
+    for t in "$CLAUDE_PROJECTS"/*/"$sid".jsonl; do
+      [[ -f "$t" ]] && printf '%s\n' "$t" && return 0
+    done
+    return 1
+  fi
+  dir="$CLAUDE_PROJECTS/$(printf '%s' "$HUB_DIR" | sed 's/[^A-Za-z0-9]/-/g')"
+  t=$(find "$dir" -maxdepth 1 -name '*.jsonl' -newer "$runf" -exec ls -t {} + 2> /dev/null | head -1)
+  [[ -n "$t" ]] && printf '%s\n' "$t"
+}
+
+# One line per step of a transcript: what the session said, ran, edited, and
+# which worker agents it spawned. Reads raw lines, so a half-written last line
+# is skipped instead of aborting the rest.
+# shellcheck disable=SC2016
+STEPS_JQ='fromjson? | select(.type == "assistant")
+  | ((.timestamp // "") | sub("\\.[0-9]+Z$"; "Z") | (try (fromdateiso8601 | localtime | strftime("%H:%M")) catch "--:--")) as $t
+  | def one: gsub("\\s+"; " ") | .[0:110];
+    .message.content[]?
+  | if .type == "tool_use" then
+      if .name == "Agent" or .name == "Task" then "\($t)  → \(.input.subagent_type // "agent"): \(.input.description // "" | one)"
+      elif .name == "Skill" then "\($t)  skill \(.input.skill // "")"
+      elif .name == "Bash" then "\($t)  $ \(.input.description // .input.command // "" | one)"
+      elif .name == "Edit" or .name == "Write" or .name == "MultiEdit" then
+        "\($t)  \(.name | ascii_downcase) \(.input.file_path // "" | sub("^.*/hub/wt/"; ""))"
+      else "\($t)  \(.name)" end
+    elif .type == "text" and ((.text // "") | length > 0) then "\($t)  » \(.text | one)"
+    else empty end'
+
+# "orchestrator (claude-opus-5-5) + worker-sonnet×2" for a transcript.
+run_agents() {
+  jq -rRs '[split("\n")[] | fromjson? | select(.type == "assistant")] as $a
+    | ([$a[] | .message.model // empty] | last // "?") as $m
+    | [$a[] | .message.content[]? | select(.type == "tool_use" and (.name == "Agent" or .name == "Task"))
+        | .input.subagent_type // "agent"] | group_by(.) | map("\(.[0])×\(length)") as $w
+    | "orchestrator (\($m))" + (if ($w | length) == 0 then ", no worker agents" else " + \($w | join(", "))" end)' "$1" 2> /dev/null
+}
+
+# Beads a dispatch run has claimed: id \x1f title.
+dispatch_claims() {
+  hbd list --status in_progress -n 0 --json 2> /dev/null |
+    jq -r '.[] | select(.assignee == "agent:dispatch")
+      | [.id, (.title | if length > 80 then .[0:79] + "…" else . end)] | join("\u001f")'
+}
+
 dispatch_run() {
   local dry="" force=""
   while (($#)); do
@@ -933,11 +1006,18 @@ dispatch_run() {
     return 0
   fi
 
-  local stamp logf rc=0
+  # The session id names the run's transcript, which `hub dispatch status` and
+  # `hub dispatch watch` read to show what it is doing.
+  local stamp logf rc=0 sid
+  local -a sidarg=()
   stamp="$today-$(date +%H%M%S)"
-  touch "$STATE/runs/$stamp"
+  sid=$(uuidgen 2> /dev/null | tr '[:upper:]' '[:lower:]' || true)
+  [[ -n "$sid" ]] || sid=$(cat /proc/sys/kernel/random/uuid 2> /dev/null || true)
+  [[ -n "$sid" ]] && sidarg=(--session-id "$sid")
+  printf '%s\n' "$sid" > "$STATE/runs/$stamp"
+  printf '%s\n' "$stamp" > "$DISPATCH_LOCK/run"
   logf="$STATE/logs/$stamp.json"
-  log "dispatching $(jq length <<< "$batch") bead(s); log: $logf"
+  log "dispatching $(jq length <<< "$batch") bead(s); log: $logf; follow: hub dispatch watch"
 
   # The prompt goes on stdin: --add-dir and --disallowedTools are variadic and
   # would swallow a trailing positional prompt. cwd is the hub, so its
@@ -947,8 +1027,8 @@ dispatch_run() {
   # a draft) so auto mode's classifier cannot strand a finished bead; with
   # --permission-prompts none there is nobody to approve anything else.
   printf 'Load the `hub` skill and follow its dispatch mode for these ready beads. Each bead has a "path": the local clone to branch from. Beads: %s\n' "$batch" |
-    (cd "$HUB_DIR" && BEADS_ACTOR=agent:dispatch claude -p --agent orchestrator \
-      --permission-mode auto --permission-prompts none --strict-mcp-config \
+    (cd "$HUB_DIR" && BEADS_ACTOR=agent:dispatch "${HUB_CLAUDE_BIN:-claude}" -p --agent orchestrator \
+      ${sidarg[@]+"${sidarg[@]}"} --permission-mode auto --permission-prompts none --strict-mcp-config \
       --max-budget-usd "$HUB_DISPATCH_BUDGET_USD" --max-turns "$HUB_DISPATCH_MAX_TURNS" \
       --output-format json \
       --allowedTools "Bash(bdh *)" "Bash(git -C * push -u origin bd/*)" "Bash(git push -u origin bd/*)" \
@@ -956,6 +1036,21 @@ dispatch_run() {
       --disallowedTools "Bash(gh pr merge *)" "Bash(gh pr ready *)" "Bash(git push --force *)" \
       "Bash(git push -f *)" "Bash(git push --force-with-lease *)" \
       "${dirs[@]}" --add-dir "$CACHE/wt") > "$logf" 2> "${logf%.json}.err" || rc=$?
+
+  # A run cut short (budget or turn cap, a crash) leaves its claims behind, and
+  # an in-progress bead never shows up as ready again. Hand each one back to you,
+  # as the skill's failure handling does; its worktree keeps any partial work.
+  # As agent:dispatch: bd refuses to reassign another actor's live claim.
+  local why lid ltitle
+  why=$(jq -r '.subtype // empty' "$logf" 2> /dev/null || true)
+  [[ -n "$why" ]] || why="claude exited $rc"
+  while IFS=$'\x1f' read -r lid ltitle; do
+    [[ -n "$lid" ]] || continue
+    jq -e --arg id "$lid" 'any(.[]; .id == $id)' <<< "$batch" > /dev/null || continue
+    BEADS_ACTOR=agent:dispatch hbd update "$lid" --append-notes "dispatch $stamp ended without finishing it ($why); any partial work is in $CACHE/wt/$lid" \
+      --remove-label agent-ok --add-label human -a "" --status open > /dev/null 2>&1 &&
+      log "$lid: the run ended without finishing it; handed back to you (human): $ltitle"
+  done <<< "$(dispatch_claims)"
 
   hbd dolt push > /dev/null 2>&1 || log "push failed; the next run retries"
 
@@ -995,11 +1090,83 @@ dispatch_status() {
   crow="$cwait waiting to launch, $crun running"
   ((cstale > 0)) && crow="$crow, $cstale with no PR after ${HUB_CLOUD_STALE_HOURS}h (see hub cloud)"
   printf 'cloud:       %s\n' "$crow"
-  last=$(find "$STATE/logs" -name '*.json' 2> /dev/null | sort | tail -1)
-  if [[ -n "$last" ]]; then
-    printf 'last run:    %s — %s\n' "$(basename "$last" .json)" \
-      "$(jq -r '"\(.subtype // "?") · \((.result // "") | tostring | .[0:120])"' "$last" 2> /dev/null || echo unreadable)"
+
+  # Who is working on what: the live run's model, worker agents and latest
+  # step, or claims that outlived the run that made them.
+  local live pid stamp t hm e mins agents cid ctitle claims
+  claims=$(dispatch_claims)
+  if live=$(live_run); then
+    read -r pid stamp <<< "$live"
+    if [[ -z "$stamp" ]]; then
+      printf 'working:     a dispatch run is starting (syncing issues and PRs; pid %s)\n' "$pid"
+    else
+      hm="${stamp:11:2}:${stamp:13:2}"
+      mins=""
+      e=$(epoch_of "${stamp:0:10} $hm") && mins=" ($((($(date +%s) - e) / 60))m)"
+      t=$(run_transcript "$stamp" || true)
+      agents="no transcript yet"
+      [[ -n "$t" ]] && agents=$(run_agents "$t")
+      printf 'working:     dispatch run since %s%s · %s\n' "$hm" "$mins" "$agents"
+      while IFS=$'\x1f' read -r cid ctitle; do
+        [[ -n "$cid" ]] && printf '             %s  %s\n' "$cid" "$ctitle"
+      done <<< "$claims"
+      [[ -n "$t" ]] && printf '             latest %s\n' "$(jq -rR "$STEPS_JQ" "$t" 2> /dev/null | tail -1)"
+      printf '             follow it: hub dispatch watch\n'
+    fi
+  else
+    while IFS=$'\x1f' read -r cid ctitle; do
+      [[ -n "$cid" ]] || continue
+      printf 'stale claim: %s %s — no run is live; release: bdh update %s --force -a "" --status open\n' "$cid" "$ctitle" "$cid"
+    done <<< "$claims"
   fi
+
+  last=$(find "$STATE/logs" -name '*.json' -size +0 2> /dev/null | sort | tail -1)
+  if [[ -n "$last" ]]; then
+    stamp=$(basename "$last" .json)
+    printf 'last run:    %s — %s\n' "$stamp" \
+      "$(jq -r '"\(.subtype // "?") · \((.result // "") | tostring | gsub("\\s+"; " ") | .[0:120])"' "$last" 2> /dev/null || echo unreadable)"
+    t=$(run_transcript "$stamp" || true)
+    [[ -n "$t" ]] && printf '             %s\n' "$(run_agents "$t")"
+  fi
+}
+
+# Print the live run's steps as they happen, or the last run's if none is live.
+dispatch_watch() {
+  ensure_path
+  need jq
+  local live pid="" stamp="" t n=0 total
+  if live=$(live_run); then
+    read -r pid stamp <<< "$live"
+    while [[ -z "$stamp" ]]; do
+      kill -0 "$pid" 2> /dev/null || die "that run ended without dispatching anything (hub dispatch status)"
+      sleep 2
+      stamp=$(cat "$STATE/dispatch.lock/run" 2> /dev/null || true)
+    done
+    until t=$(run_transcript "$stamp"); do
+      kill -0 "$pid" 2> /dev/null || die "no transcript found for run $stamp"
+      sleep 2
+    done
+  else
+    stamp=$(find "$STATE/runs" -type f 2> /dev/null | sort | tail -1)
+    stamp=${stamp##*/}
+    [[ -n "$stamp" ]] || die "no dispatch runs yet"
+    t=$(run_transcript "$stamp") || die "no transcript found for run $stamp"
+    log "no run is live; the last one ($stamp): $(run_agents "$t")"
+    jq -rR "$STEPS_JQ" "$t"
+    return 0
+  fi
+  log "run $stamp: $(run_agents "$t")"
+  log "following until it ends; Ctrl-C stops watching, not the run"
+  while :; do
+    total=$(wc -l < "$t" | tr -d ' ')
+    if ((total > n)); then
+      sed -n "$((n + 1)),${total}p" "$t" | jq -rR "$STEPS_JQ" 2> /dev/null || true
+      n=$total
+    fi
+    kill -0 "$pid" 2> /dev/null || break
+    sleep 2
+  done
+  log "the run has finished: hub dispatch status"
 }
 
 dispatch_approve() {
@@ -1031,8 +1198,9 @@ cmd_dispatch() {
       log "dispatcher resumed"
       ;;
     status) dispatch_status ;;
+    watch) dispatch_watch ;;
     approve) dispatch_approve "$@" ;;
-    *) die "dispatch: unknown subcommand $sub (run|pause|resume|status|approve)" ;;
+    *) die "dispatch: unknown subcommand $sub (run|pause|resume|status|watch|approve)" ;;
   esac
 }
 
@@ -1053,7 +1221,8 @@ hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
   hub cloud --refresh           close cloud beads whose draft PR has appeared
   hub dispatch run [--dry-run]  work ready agent-ok beads unattended (launchd runs this)
   hub dispatch pause|resume     kill switch
-  hub dispatch status           runs today, estimated cost, last result
+  hub dispatch status           runs today, estimated cost, who is working on what, last result
+  hub dispatch watch            follow the live run step by step (or replay the last one)
   hub dispatch approve <id>     allow Fable on a bead and lift its human gate
 
 Shell helpers: did [-r owner/name] "text" (log your own work), todo [-r owner/name] ["text"] (your to-dos).
