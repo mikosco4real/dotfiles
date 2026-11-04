@@ -43,13 +43,15 @@ _hub_repo_slug() {
   _hub_norm_slug "$url"
 }
 
-# Shared by did and todo: consume a leading `-r|--repo <repo>` (or --repo=<repo>)
-# and `--`. Sets the CALLER's _hub_slug and _hub_n (args consumed); zsh's
-# dynamic scoping makes the caller's locals visible here.
-_hub_repo_opt() {
-  _hub_slug="" _hub_n=0
+# Shared by did and todo: consume leading `-r|--repo <repo>` (or --repo=<repo>),
+# `-p|--private` and `--`. Sets the CALLER's _hub_slug, _hub_private and _hub_n
+# (args consumed); zsh's dynamic scoping makes the caller's locals visible here.
+# `private` keeps a bead out of the Teams drafts: people management, personal.
+_hub_opts() {
+  _hub_slug="" _hub_private="" _hub_n=0
   while (( $# )); do
     case "$1" in
+      -p | --private) _hub_private=1; shift; (( _hub_n += 1 )) ;;
       -r | --repo)
         _hub_slug=$(_hub_norm_slug "${2:-}") || {
           print -u2 "${funcstack[2]}: -r needs a repo: owner/name, a GitHub URL or a git remote"
@@ -72,16 +74,17 @@ _hub_repo_opt() {
 # did "Reviewed the rollout plan with Priya"
 # did -r webtize/payments-api "Paired with Sid on the retry bug"
 # did w-abc ["how it went"]   — mark an existing bead (e.g. a todo) done
+# did -p "…"                   — private: never in the Teams drafts
 # Logs work you did yourself as an already-closed bead, so the daily report
 # (`hub report`) sees it. Tagged repo:<owner>/<name> from -r, or else from the
 # git repo you're in; outside a repo and without -r it gets no repo label.
 did() {
   _hub_fresh || { did "$@"; return; }
-  local _hub_slug _hub_n labels=manual slug id
-  _hub_repo_opt "$@" || return
+  local _hub_slug _hub_private _hub_n labels=manual slug id
+  _hub_opts "$@" || return
   shift $_hub_n
   if (( ! $# )); then
-    print -u2 'usage: did [-r owner/name] "what you did" | did <bead-id> ["note"]'
+    print -u2 'usage: did [-r owner/name] [-p] "what you did" | did [-p] <bead-id> ["note"]'
     return 1
   fi
   # An existing bead ID first: close that bead instead of logging a new one.
@@ -92,6 +95,7 @@ did() {
     shift
     local add=(--add-label manual)
     [[ -n "$_hub_slug" ]] && add+=(--add-label "repo:$_hub_slug")
+    [[ -n "$_hub_private" ]] && add+=(--add-label private)
     bdh update "$id" "${add[@]}" > /dev/null || return
     bdh close "$id" -r "${*:-done}" > /dev/null || return
     print -r -- "done $id: $(bdh show "$id" --json 2> /dev/null | jq -r '.[0].title // .title')"
@@ -99,21 +103,23 @@ did() {
   fi
   slug=${_hub_slug:-$(_hub_repo_slug)}
   [[ -n "$slug" ]] && labels+=",repo:$slug"
+  [[ -n "$_hub_private" ]] && labels+=",private"
   # --title=, not a positional title: bd refuses a positional title that starts
   # with "-" (it looks like a flag), e.g. did -- "-5% p95 latency".
   id=$(bdh create --title="$*" -t task -l "$labels" --silent) || return
   bdh close "$id" -r done > /dev/null || return
-  print -r -- "logged $id${slug:+ ($slug)}"
+  print -r -- "logged $id${slug:+ ($slug)}${_hub_private:+ (private)}"
 }
 
 # todo "Chase IT about the Teams webhook"   — add a to-do only you can do
 # todo -r webtize/x "Ask Sid for the staging creds"
+# todo -p "Confirm Bright's probation dates"   — private: never in the Teams drafts
 # todo                                       — list your open to-dos
 # Labelled `human`, which the dispatcher never picks up. Repo as for did.
 todo() {
   _hub_fresh || { todo "$@"; return; }
-  local _hub_slug _hub_n labels=human slug id
-  _hub_repo_opt "$@" || return
+  local _hub_slug _hub_private _hub_n labels=human slug id
+  _hub_opts "$@" || return
   shift $_hub_n
   if (( ! $# )); then
     bdh list -l human
@@ -121,8 +127,9 @@ todo() {
   fi
   slug=${_hub_slug:-$(_hub_repo_slug)}
   [[ -n "$slug" ]] && labels+=",repo:$slug"
+  [[ -n "$_hub_private" ]] && labels+=",private"
   id=$(bdh create --title="$*" -t task -l "$labels" -a "$(git config --global user.name)" --silent) || return
-  print -r -- "added $id${slug:+ ($slug)}"
+  print -r -- "added $id${slug:+ ($slug)}${_hub_private:+ (private)}"
 }
 
 # Give bdh the same completion as bd. Homebrew installs bd's completion, but
