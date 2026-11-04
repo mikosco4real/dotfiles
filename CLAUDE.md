@@ -391,18 +391,42 @@ Rules that matter:
 - `bin/` scripts target **bash 3.2**, the only bash on macOS and the one launchd
   resolves: no `${x,,}`, no `mapfile`, and an empty `"${arr[@]}"` is an
   unbound-variable error under `set -u` (use `${arr[@]+"${arr[@]}"}`).
-- `closed_at` is stored in UTC. Pass `--closed-after` an RFC3339 local midnight
+- `closed_at` is stored in UTC. Pass `--closed-after` an RFC3339 timestamp
   with its offset (`hub report` does), not a bare date.
-- **The daily draft rides on the dispatcher's StartInterval cycle**
-  (`maybe_daily_report`): the first cycle at or after `HUB_REPORT_AT` (16:45) on
-  a report day builds it once, before the pause and hours checks. It used to be
-  a separate StartCalendarInterval agent, which never fired on this Mac. launchd
-  registered its triggers and the machine was awake at 16:45, yet it showed
-  `runs = 0` and logged nothing, while the StartInterval job beside it fired
-  every time. Don't reintroduce a calendar agent without checking
-  `launchctl print gui/$UID/<label>` shows runs going up. `hub report show`
-  rebuilds a draft older than `HUB_REPORT_MAX_AGE_MIN` (15), because printing a
-  stale saved draft hid work logged after it.
+- **A workday runs from `HUB_DAY_ROLLOVER` (04:00) to 04:00 the next day**
+  (`report_day`, `day_start`), not midnight to midnight. The user posts late:
+  a wrap built at 00:58 started a new day and missed the evening, so two drafts
+  had to be merged by hand.
+- **Two Teams drafts ride on the dispatcher's StartInterval cycle**
+  (`maybe_draft`). On a report day, the first cycle at or after each time
+  builds that draft once, before the pause and hours checks:
+  - `HUB_PLAN_AT` (08:30) builds the morning plan (`hub report plan`). It is
+    skipped once the wrap is due.
+  - `HUB_REPORT_AT` (16:45) builds the end-of-day wrap (`hub report`).
+
+  This used to be a separate StartCalendarInterval agent, which never fired on
+  this Mac. launchd registered its triggers and the machine was awake at
+  16:45, yet it showed `runs = 0` and logged nothing, while the StartInterval
+  job beside it fired every time. Don't reintroduce a calendar agent without
+  checking `launchctl print gui/$UID/<label>` shows runs going up.
+  `hub report show [plan]` rebuilds a draft older than `HUB_REPORT_MAX_AGE_MIN`
+  (15), because printing a stale saved draft hid work logged after it.
+- **Teams keeps pasted Markdown as literal text**, and no setting changes
+  that. On a real post the bullets stayed `- ` lines, and the auto-link
+  swallowed the `)` of `[PR #1](url)`, so every link 404ed. `hub report show`
+  therefore copies rich text (`copy_rich`):
+  - the jq `MD_HTML_JQ` converts the drafts' small Markdown subset, including
+    two-space nested bullets;
+  - the macOS clipboard gets `public.html` plus a plain fallback through
+    NSPasteboard (JXA), because `pbcopy` can only set plain text;
+  - Linux uses `wl-copy --type text/html` or `xclip -t text/html`.
+
+  The templates (`~/.config/hub/{report,plan}-template.md`, live symlinks)
+  name the projects as the team knows them.
+- **`private` beads never reach a draft.** The channel is read by the people
+  the user manages, and an early wrap posted to-dos about a colleague's
+  probation there. `todo -p` / `did -p` add the label. Both templates also
+  drop HR matters as a safety net.
 - `hub bootstrap` refuses a remote with no `refs/dolt/data`: `bd bootstrap`
   would otherwise create an empty database without a word.
 - The helper is `did`, not `done`, because `done` is a zsh reserved word.

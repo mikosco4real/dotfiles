@@ -16,6 +16,7 @@ HUB_PREFIX="${HUB_PREFIX:-p}"
 HUB_GH_OWNER="${HUB_GH_OWNER:-}"
 HUB_REPO_ROOTS="${HUB_REPO_ROOTS:-$HOME/Projects}"
 HUB_TEMPLATE="${HUB_TEMPLATE:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-template.md}"
+HUB_PLAN_TEMPLATE="${HUB_PLAN_TEMPLATE:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/plan-template.md}"
 
 # Guardrails. Override any of these in ~/.config/hub/env.local. On a claude.ai
 # subscription nothing is billed per run; the dollar figures are Claude Code's
@@ -28,9 +29,11 @@ HUB_TEMPLATE="${HUB_TEMPLATE:-${XDG_CONFIG_HOME:-$HOME/.config}/hub/report-templ
 : "${HUB_DISPATCH_DAYS:=1-5}"      # ISO weekdays, 1 = Monday
 : "${HUB_REPORT_BUDGET_USD:=0.25}" # per report polish
 : "${HUB_CLOUD_STALE_HOURS:=2}"    # a cloud session with no PR after this is flagged
-: "${HUB_REPORT_AT:=16:45}"        # daily draft: first dispatcher cycle at or after this
-: "${HUB_REPORT_DAYS:=1-5}"        # ISO weekdays for the daily draft
+: "${HUB_PLAN_AT:=08:30}"          # morning plan: first dispatcher cycle at or after this
+: "${HUB_REPORT_AT:=16:45}"        # end-of-day wrap: first dispatcher cycle at or after this
+: "${HUB_REPORT_DAYS:=1-5}"        # ISO weekdays for both drafts
 : "${HUB_REPORT_MAX_AGE_MIN:=15}"  # `hub report show` rebuilds a draft older than this
+: "${HUB_DAY_ROLLOVER:=04:00}"     # a draft built before this covers the previous workday
 
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/hub"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hub"
@@ -105,12 +108,25 @@ dolt_url_of() {
 # `date` differs between BSD (macOS) and GNU (Linux); -j exists only on BSD.
 is_bsd_date() { date -j > /dev/null 2>&1; }
 
-# RFC3339 for local midnight at the start of $1 (YYYY-MM-DD). bd stores
-# closed_at in UTC, and a bare date is ambiguous, so pass the offset.
+# RFC3339 for the start of workday $1 (YYYY-MM-DD): HUB_DAY_ROLLOVER local
+# time. bd stores closed_at in UTC, and a bare date is ambiguous, so pass the
+# offset.
 day_start() {
-  local z
-  if is_bsd_date; then z=$(date -j -f '%F %T' "$1 00:00:00" +%z); else z=$(date -d "$1 00:00:00" +%z); fi
-  printf '%sT00:00:00%s:%s\n' "$1" "${z:0:3}" "${z:3:2}"
+  local z t="$HUB_DAY_ROLLOVER:00"
+  if is_bsd_date; then z=$(date -j -f '%F %T' "$1 $t" +%z); else z=$(date -d "$1 $t" +%z); fi
+  printf '%sT%s%s:%s\n' "$1" "$t" "${z:0:3}" "${z:3:2}"
+}
+# The workday the drafts cover: before HUB_DAY_ROLLOVER (04:00) it is still
+# yesterday's. A wrap posted at 00:58 used to start a fresh day and miss the
+# whole evening, and work logged after midnight went into tomorrow's wrap.
+report_day() {
+  if ((10#$(date +%H%M) >= 10#${HUB_DAY_ROLLOVER/:/})); then
+    date +%F
+  elif is_bsd_date; then
+    date -j -v-1d +%F
+  else
+    date -d yesterday +%F
+  fi
 }
 
 next_day() {
@@ -218,7 +234,7 @@ cmd_bootstrap() {
   log "hub cloned to $HUB_DIR"
 }
 
-# ─── report: the daily summary draft ──────────────────────────────────────────
+# ─── report: the daily drafts (morning plan, end-of-day wrap) ─────────────────
 copy_clipboard() {
   if command -v pbcopy > /dev/null 2>&1; then
     pbcopy
@@ -232,41 +248,94 @@ copy_clipboard() {
   fi
 }
 
-cmd_report() {
-  ensure_path
-  local raw="" day notify_only="" quiet="" out
-  day=$(date +%F)
-  if [[ "${1:-}" == "show" ]]; then
-    out="$STATE/reports/$day.md"
-    # Rebuild a missing or stale draft first. `show` used to print whatever was
-    # saved last, so work logged after that save never appeared in it.
-    if [[ ! -f "$out" || -n "$(find "$out" -mmin +"$HUB_REPORT_MAX_AGE_MIN" 2> /dev/null)" ]]; then
-      log "today's draft is missing or over $HUB_REPORT_MAX_AGE_MIN minutes old; rebuilding it"
-      cmd_report --quiet
-    fi
-    cat "$out"
-    copy_clipboard < "$out" && log "copied $(basename "$out") to the clipboard"
-    return 0
+# Markdown → HTML for the drafts' small subset: **bold**, `code`, [text](url),
+# bare URLs, "- " bullets (two-space indent nests one level), a line that is
+# only **X** or a # heading, and paragraphs. Teams (verified on a real post)
+# keeps pasted Markdown as literal text: no bullets, and an auto-linked
+# "[PR #1](url)" swallowed the closing paren, so every link 404ed. Pasted HTML
+# keeps its formatting.
+# shellcheck disable=SC2016
+MD_HTML_JQ='
+def esc: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
+def inline: esc
+  | gsub("\\[(?<t>[^\\]]+)\\]\\((?<u>https?://[^)\\s]+)\\)|(?<b>https?://[^\\s<]*[^\\s<.,;:)])";
+      if .t then "<a href=\"\(.u)\">\(.t)</a>" else "<a href=\"\(.b)\">\(.b)</a>" end)
+  | gsub("\\*\\*(?<x>[^*]+)\\*\\*"; "<strong>\(.x)</strong>")
+  | gsub("`(?<c>[^`]+)`"; "<code>\(.c)</code>");
+def flush: if (.para | length) > 0 then .out += ["<p>" + (.para | join("<br>")) + "</p>"] | .para = [] else . end;
+def close_to($d): until(.depth <= $d; .out += ["</li></ul>"] | .depth -= 1);
+reduce (split("\n")[] | sub("\\s+$"; "")) as $l ({out: [], para: [], depth: 0};
+  (($l | capture("^(?<i> *)[-*] (?<t>.*)$")) // null) as $li
+  | if $li then
+      ([(($li.i | length) / 2 | floor) + 1, .depth + 1] | min) as $lv
+      | flush
+      | if $lv > .depth then .out += ["<ul><li>"] | .depth = $lv
+        else close_to($lv) | .out += ["</li><li>"] end
+      | .out += [$li.t | inline]
+    elif $l == "" then close_to(0) | flush
+    elif ($l | test("^#{1,6}\\s+|^\\*\\*[^*]+\\*\\*:?$")) then
+      close_to(0) | flush
+      | .out += ["<p><strong>" + ($l | sub("^#{1,6}\\s+"; "") | sub("^\\*\\*(?<x>[^*]+)\\*\\*(?<c>:?)$"; "\(.x)\(.c)") | inline) + "</strong></p>"]
+    else close_to(0) | .para += [$l | inline] end)
+| close_to(0) | flush
+| "<meta charset=\"utf-8\">" + (.out | join(""))'
+
+# The same draft as plain text, for anything that ignores the HTML.
+# shellcheck disable=SC2016
+MD_PLAIN_JQ='split("\n") | map(
+    gsub("\\[(?<t>[^\\]]+)\\]\\((?<u>[^)\\s]+)\\)"; "\(.t) (\(.u))")
+  | gsub("\\*\\*(?<x>[^*]+)\\*\\*"; "\(.x)")
+  | gsub("`(?<c>[^`]+)`"; "\(.c)")
+  | sub("^(?<i> *)[-*] "; "\(.i)• ")) | join("\n")'
+
+# Copy a Markdown draft as rich text (HTML plus a plain-text fallback), so it
+# pastes into Teams with real bold, bullets and links. Leaves <draft>.html.
+copy_rich() {
+  local md="$1" html="${1%.md}.html" plain="${1%.md}.txt"
+  jq -Rrs "$MD_HTML_JQ" "$md" > "$html" && jq -Rrs "$MD_PLAIN_JQ" "$md" > "$plain" || return 1
+  if command -v osascript > /dev/null 2>&1; then
+    # pbcopy can only set plain text; NSPasteboard takes both flavours at once.
+    osascript -l JavaScript - "$html" "$plain" > /dev/null << 'JXA'
+ObjC.import("AppKit");
+function run(argv) {
+  const read = (p) => $.NSString.stringWithContentsOfFileEncodingError(p, $.NSUTF8StringEncoding, null);
+  const pb = $.NSPasteboard.generalPasteboard;
+  pb.clearContents;
+  pb.setStringForType(read(argv[0]), $.NSPasteboardTypeHTML);
+  pb.setStringForType(read(argv[1]), $.NSPasteboardTypeString);
+}
+JXA
+  elif command -v wl-copy > /dev/null 2>&1; then
+    wl-copy --type text/html < "$html"
+  elif command -v xclip > /dev/null 2>&1; then
+    xclip -selection clipboard -t text/html < "$html"
+  else
+    copy_clipboard < "$plain"
   fi
-  while (($#)); do
-    case "$1" in
-      --raw) raw=1 ;;
-      --date)
-        day="${2:?--date needs YYYY-MM-DD}"
-        shift
-        ;;
-      --notify) notify_only=1 ;;
-      --quiet) quiet=1 ;; # save only; `show` prints it
+}
 
-      *) die "report: unknown option $1" ;;
-    esac
-    shift
-  done
-  need bd jq
-  need_hub
+# Rewrite a raw summary (stdin) with a template as the system prompt. No tools,
+# no MCP servers, nothing to approve: this only rewrites text. From $STATE, so
+# no project hook (e.g. the hub's bd prime) fires.
+polish() {
+  (cd "$STATE" && claude -p --model sonnet --tools "" \
+    --strict-mcp-config --max-budget-usd "$HUB_REPORT_BUDGET_USD" \
+    --append-system-prompt "$(cat "$1")" "$2")
+}
 
-  hbd dolt pull > /dev/null 2>&1 || log "pull failed; reporting from the local copy"
-  local from to closed wip blocked todos cloudwait prs md
+# Shared jq definitions for the raw summaries. `private` beads (people
+# management, personal) never reach a draft: colleagues read the channel.
+# shellcheck disable=SC2016
+REPORT_DEFS_JQ='
+def repo: ((.labels // []) | map(select(startswith("repo:"))) | first // "repo:(no repo)") | ltrimstr("repo:");
+def who: if ((.assignee // "") | test("^(agent:|claude$)")) then " _(agent)_" else "" end;
+def pub: map(select((.labels // []) | index("private") | not));
+def section(title; items; fmt):
+  if (items | length) == 0 then empty else "\n## \(title)\n", (items | .[] | fmt) end;'
+
+# Raw end-of-day summary for $1 (YYYY-MM-DD), as Markdown on stdout.
+wrap_raw() {
+  local day="$1" from to closed wip blocked todos cloudwait prs
   from=$(day_start "$day")
   to=$(day_start "$(next_day "$day")")
   closed=$(hbd list -s closed --closed-after "$from" --closed-before "$to" -n 0 --json 2> /dev/null || echo '[]')
@@ -283,76 +352,162 @@ cmd_report() {
     prs=$(gh search prs --author=@me --merged="$from..$to" ${owner_flag[@]+"${owner_flag[@]}"} \
       --json title,url,repository --limit 100 2> /dev/null || echo '[]')
   fi
-
-  md=$(jq -nr --arg day "$day" \
+  # A close reason other than "done" is how it went (`did <id> "note"`, a PR
+  # URL); the polish writes the Done line from it, since a to-do's title reads
+  # as a task.
+  jq -nr --arg day "$day" \
     --argjson closed "${closed:-[]}" --argjson wip "${wip:-[]}" \
     --argjson blocked "${blocked:-[]}" --argjson todos "${todos:-[]}" --argjson prs "${prs:-[]}" \
-    --argjson cloudwait "${cloudwait:-[]}" '
-    def repo: ((.labels // []) | map(select(startswith("repo:"))) | first // "repo:(no repo)") | ltrimstr("repo:");
-    def who: if ((.assignee // "") | test("^(agent:|claude$)")) then " _(agent)_" else "" end;
-    def section(title; items; fmt):
-      if (items | length) == 0 then empty else "\n## \(title)\n", (items | .[] | fmt) end;
+    --argjson cloudwait "${cloudwait:-[]}" "$REPORT_DEFS_JQ"'
     "# Work summary — \($day)",
-    section("Done"; ($closed | map(select(.issue_type != "gate")) | sort_by(repo));
-      "- [\(repo)] \(.title)\(who)\(if (.close_reason // "") | test("^https?://|PR") then " — \(.close_reason)" else "" end)"),
+    section("Done"; ($closed | pub | map(select(.issue_type != "gate")) | sort_by(repo));
+      "- [\(repo)] \(.title)\(who)\(if (.close_reason // "") | IN("", "done") then "" else " — \(.close_reason)" end)"),
     section("PRs merged"; $prs; "- [\(.repository.nameWithOwner)] \(.title) — \(.url)"),
-    section("In progress"; $wip; "- [\(repo)] \(.title)"),
-    section("Blocked"; $blocked; "- [\(repo)] \(.title) — blocked by \(.blocked_by | join(", "))"),
-    section("My to-dos"; $todos; "- \(.title)"),
-    section("Waiting to launch in the cloud"; $cloudwait; "- [\(repo)] \(.title) — hub cloud \(.id)")
-  ')
+    section("In progress"; ($wip | pub); "- [\(repo)] \(.title)"),
+    section("Blocked"; ($blocked | pub); "- [\(repo)] \(.title) — blocked by \(.blocked_by | join(", "))"),
+    section("My to-dos"; ($todos | pub | sort_by(.priority // 2)); "- [\(repo)] \(.title)"),
+    section("Waiting to launch in the cloud"; $cloudwait; "- [\(repo)] \(.title) — hub cloud \(.id)")'
+}
+
+# Raw input for the morning plan: what is under way, the to-dos in priority
+# order, and what is stuck.
+plan_raw() {
+  local wip blocked todos
+  wip=$(hbd list -s in_progress -n 0 --json 2> /dev/null || echo '[]')
+  blocked=$(hbd blocked --json 2> /dev/null || echo '[]')
+  todos=$(hbd list -l human -s open -n 0 --json 2> /dev/null || echo '[]')
+  jq -nr --arg day "$(report_day)" \
+    --argjson wip "${wip:-[]}" --argjson blocked "${blocked:-[]}" --argjson todos "${todos:-[]}" \
+    "$REPORT_DEFS_JQ"'
+    "# Plan input — \($day)",
+    section("In progress"; ($wip | pub); "- [\(repo)] \(.title)\(who)"),
+    section("My to-dos, highest priority first"; ($todos | pub | sort_by(.priority // 2, .created_at));
+      "- [\(repo)] P\(.priority // 2) \(.title)"),
+    section("Blocked"; ($blocked | pub); "- [\(repo)] \(.title) — blocked by \(.blocked_by | join(", "))")'
+}
+
+# hub report show [plan] [--plain]: print today's draft and copy it for Teams,
+# rebuilding it first when it is missing or stale. `show` used to print the
+# last save, which hid work logged after it.
+report_show() {
+  local kind=wrap plain="" out
+  while (($#)); do
+    case "$1" in
+      plan) kind=plan ;;
+      --plain) plain=1 ;;
+      *) die "report show: unknown option $1" ;;
+    esac
+    shift
+  done
+  out="$STATE/reports/$(report_day).md"
+  [[ "$kind" == plan ]] && out="$STATE/reports/$(report_day).plan.md"
+  if [[ ! -f "$out" || -n "$(find "$out" -mmin +"$HUB_REPORT_MAX_AGE_MIN" 2> /dev/null)" ]]; then
+    log "today's $kind draft is missing or over $HUB_REPORT_MAX_AGE_MIN minutes old; rebuilding it"
+    if [[ "$kind" == plan ]]; then cmd_report plan --quiet; else cmd_report --quiet; fi
+  fi
+  cat "$out"
+  if [[ -n "$plain" ]]; then
+    copy_clipboard < "$out" && log "copied $(basename "$out") as plain text"
+  else
+    copy_rich "$out" && log "copied $(basename "$out"): paste it into Teams as is (bold, bullets and links come along)"
+  fi
+}
+
+# hub report [plan] [--raw] [--date D] [--notify] [--quiet]
+cmd_report() {
+  ensure_path
+  if [[ "${1:-}" == "show" ]]; then
+    shift
+    report_show "$@"
+    return
+  fi
+  local kind=wrap raw="" day notify_only="" quiet="" out md tpl ask
+  if [[ "${1:-}" == "plan" ]]; then
+    kind=plan
+    shift
+  fi
+  day=$(report_day)
+  while (($#)); do
+    case "$1" in
+      --raw) raw=1 ;;
+      --date)
+        day="${2:?--date needs YYYY-MM-DD}"
+        shift
+        ;;
+      --notify) notify_only=1 ;;
+      --quiet) quiet=1 ;; # save only; `show` prints it
+      *) die "report: unknown option $1" ;;
+    esac
+    shift
+  done
+  need bd jq
+  need_hub
+
+  hbd dolt pull > /dev/null 2>&1 || log "pull failed; reporting from the local copy"
+  if [[ "$kind" == plan ]]; then
+    md=$(plan_raw)
+    tpl="$HUB_PLAN_TEMPLATE"
+    out="$STATE/reports/$day.plan.md"
+    ask="Write my start-of-day plan from the work list on stdin, following the system instructions."
+  else
+    md=$(wrap_raw "$day")
+    tpl="$HUB_TEMPLATE"
+    out="$STATE/reports/$day.md"
+    ask="Rewrite the work summary on stdin as my end-of-day wrap, following the system instructions."
+  fi
 
   mkdir -p "$STATE/reports"
-  out="$STATE/reports/$day.md"
   if [[ -z "$raw" ]] && ! command -v claude > /dev/null 2>&1; then
     log "claude not on PATH; saving the raw summary"
     raw=1
-  elif [[ -z "$raw" && ! -r "$HUB_TEMPLATE" ]]; then
-    log "no report template at $HUB_TEMPLATE; saving the raw summary"
+  elif [[ -z "$raw" && ! -r "$tpl" ]]; then
+    log "no template at $tpl; saving the raw summary"
     raw=1
   fi
   if [[ -n "$raw" ]]; then
     printf '%s\n' "$md" > "$out"
-  else
-    # No tools, no MCP servers, nothing to approve: this run only rewrites text.
-    # Run from $STATE so no project hook (e.g. the hub's bd prime) fires.
-    (cd "$STATE" && printf '%s\n' "$md" | claude -p --model sonnet --tools "" \
-      --strict-mcp-config --max-budget-usd "$HUB_REPORT_BUDGET_USD" \
-      --append-system-prompt "$(cat "$HUB_TEMPLATE")" \
-      "Rewrite the work summary on stdin as my daily update, following the system instructions.") > "$out" ||
-      {
-        log "polish failed; saved the raw summary instead"
-        printf '%s\n' "$md" > "$out"
-      }
+  elif ! printf '%s\n' "$md" | polish "$tpl" "$ask" > "$out"; then
+    log "polish failed; saved the raw summary instead"
+    printf '%s\n' "$md" > "$out"
   fi
 
   if [[ -n "$notify_only" ]]; then
-    notify "Daily report ready" "hub report show — prints it and copies it to the clipboard"
+    if [[ "$kind" == plan ]]; then
+      notify "Morning plan ready" "hub report show plan — prints it and copies it for Teams"
+    else
+      notify "Daily wrap ready" "hub report show — prints it and copies it for Teams"
+    fi
   elif [[ -z "$quiet" ]]; then
     cat "$out"
-    log "saved $out — \`hub report show\` copies it to the clipboard"
+    if [[ "$kind" == plan ]]; then ask="hub report show plan"; else ask="hub report show"; fi
+    log "saved $out — \`$ask\` copies it for Teams"
   fi
 }
 
-# The daily draft rides on the dispatcher's 30-minute StartInterval cycle. A
-# separate StartCalendarInterval agent for 16:45 never fired on this Mac: its
-# triggers were registered, the machine was awake, launchd showed runs = 0 and
-# logged nothing, while the StartInterval job beside it fired every time. This
-# also catches up after sleep: the first cycle at or after HUB_REPORT_AT on a
-# report day builds the draft, once.
-maybe_daily_report() {
-  local day hm marker
+# The drafts ride on the dispatcher's 30-minute StartInterval cycle. A separate
+# StartCalendarInterval agent for 16:45 never fired on this Mac: its triggers
+# were registered, the machine was awake, launchd showed runs = 0 and logged
+# nothing, while the StartInterval job beside it fired every time. This also
+# catches up after sleep: the first cycle at or after <HH:MM> on a report day
+# builds that draft, once. A morning plan is not worth building once the wrap
+# is due, so a late first cycle skips it.
+maybe_draft() {
+  local kind="$1" at="$2" day hm marker
   day=$(date +%u)
   hm=$(date +%H%M)
   ((day >= ${HUB_REPORT_DAYS%-*} && day <= ${HUB_REPORT_DAYS#*-})) || return 0
-  ((10#$hm >= 10#${HUB_REPORT_AT/:/})) || return 0
-  marker="$STATE/reports/$(date +%F).auto"
+  ((10#$hm >= 10#${at/:/})) || return 0
+  marker="$STATE/reports/$(report_day).auto"
+  if [[ "$kind" == plan ]]; then
+    ((10#$hm < 10#${HUB_REPORT_AT/:/})) || return 0
+    marker="$STATE/reports/$(report_day).plan.auto"
+  fi
   [[ -e "$marker" ]] && return 0
   mkdir -p "$STATE/reports"
-  if (cmd_report --notify); then
-    touch "$marker"
+  if [[ "$kind" == plan ]]; then
+    if (cmd_report plan --notify); then touch "$marker"; else log "morning plan failed; the next cycle retries"; fi
   else
-    log "daily report failed; the next cycle retries"
+    if (cmd_report --notify); then touch "$marker"; else log "daily wrap failed; the next cycle retries"; fi
   fi
 }
 
@@ -899,8 +1054,11 @@ dispatch_run() {
   mkdir -p "$STATE/runs" "$STATE/logs" "$CACHE/wt"
 
   # Before the pause and hours checks: pausing dispatch shouldn't stop the
-  # daily draft, and 16:45 falls inside dispatch hours anyway.
-  [[ -n "$dry" ]] || maybe_daily_report
+  # daily drafts, and 08:30 and 16:45 fall inside dispatch hours anyway.
+  if [[ -z "$dry" ]]; then
+    maybe_draft plan "$HUB_PLAN_AT"
+    maybe_draft wrap "$HUB_REPORT_AT"
+  fi
 
   if [[ -e "$STATE/paused" ]]; then
     log "paused (hub dispatch resume)"
@@ -1216,8 +1374,10 @@ hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
 
   hub init                      create this workspace's hub + private GitHub repo (once, ever)
   hub bootstrap                 clone the existing hub onto this machine (chezmoi runs this)
-  hub report [--raw] [--date D] build today's summary draft (--raw: skip the Sonnet polish)
-  hub report show               print the latest draft and copy it to the clipboard
+  hub report [--raw] [--date D] build today's end-of-day wrap (--raw: skip the Sonnet polish)
+  hub report plan [--raw]       build today's start-of-day plan
+  hub report show [plan]        print today's wrap (or plan) and copy it for Teams as rich
+                                text; --plain copies plain text instead
   hub issue <url|o/r#N> [--agent-ok]  import one GitHub issue as a bead
   hub issues [--import]         open issues assigned to you that aren't in the hub yet
   hub issues --refresh          close beads whose GitHub issue was closed
@@ -1231,8 +1391,9 @@ hub — beads hub toolkit (bd against ~/hub without cd: use `bdh`)
   hub dispatch watch            follow the live run step by step (or replay the last one)
   hub dispatch approve <id>     allow Fable on a bead and lift its human gate
 
-Shell helpers: did [-r owner/name] "text" (log your own work), todo [-r owner/name] ["text"] (your to-dos).
-Without -r they tag the git repo you are in; text starting with - goes after --.
+Shell helpers: did [-r owner/name] [-p] "text" (log your own work), todo [-r owner/name] [-p] ["text"]
+(your to-dos). Without -r they tag the git repo you are in; -p marks it private (never in a
+draft); text starting with - goes after --.
 Overrides: ~/.config/hub/env.local, e.g. HUB_DISPATCH_BUDGET_USD=1
 EOF
 }
