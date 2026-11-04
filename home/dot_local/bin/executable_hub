@@ -1064,7 +1064,9 @@ dispatch_run() {
 dispatch_status() {
   local today runs cost_today cost_week last
   today=$(date +%F)
-  runs=$(find "$STATE/runs" -name "$today-*" 2> /dev/null | wc -l | tr -d ' ')
+  # `|| true`: before the first dispatch run $STATE/runs and $STATE/logs do not
+  # exist, find exits non-zero, and pipefail + set -e would end status silently.
+  runs=$(find "$STATE/runs" -name "$today-*" 2> /dev/null | wc -l | tr -d ' ' || true)
   printf 'paused:      %s\n' "$([[ -e "$STATE/paused" ]] && echo yes || echo no)"
   printf 'runs today:  %s / %s\n' "$runs" "$HUB_DISPATCH_MAX_RUNS"
   printf 'guardrails:  ~$%s/run, %s turns, %s beads/run, days %s, hours %s\n' \
@@ -1073,10 +1075,12 @@ dispatch_status() {
   if command -v launchctl > /dev/null 2>&1; then
     printf 'launchd:     %s\n' "$(launchctl print "gui/$(id -u)/$LAUNCHD_DISPATCH" > /dev/null 2>&1 && echo loaded || echo "not loaded")"
   fi
+  # Not `|| echo 0`: when find fails, jq has already printed 0, so the fallback
+  # appended a second line ("~$0\n0 today"). Default empty output afterwards.
   # shellcheck disable=SC2016
-  cost_today=$(find "$STATE/logs" -name "$today-*.json" -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
-  cost_week=$(find "$STATE/logs" -name '*.json' -mtime -7 -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || echo 0)
-  printf 'est. cost:   ~$%s today, ~$%s last 7 days\n' "$cost_today" "$cost_week"
+  cost_today=$(find "$STATE/logs" -name "$today-*.json" -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || true)
+  cost_week=$(find "$STATE/logs" -name '*.json' -mtime -7 -exec cat {} + 2> /dev/null | jq -s 'map(.total_cost_usd // 0) | add // 0 | . * 100 | round / 100' 2> /dev/null || true)
+  printf 'est. cost:   ~$%s today, ~$%s last 7 days\n' "${cost_today:-0}" "${cost_week:-0}"
   local crow cwait=0 crun=0 cstale=0 cid cstatus cmins
   while IFS=$'\x1f' read -r cid cstatus cmins _; do
     [[ -n "$cid" ]] || continue
@@ -1120,13 +1124,15 @@ dispatch_status() {
     done <<< "$claims"
   fi
 
-  last=$(find "$STATE/logs" -name '*.json' -size +0 2> /dev/null | sort | tail -1)
+  last=$(find "$STATE/logs" -name '*.json' -size +0 2> /dev/null | sort | tail -1 || true)
   if [[ -n "$last" ]]; then
     stamp=$(basename "$last" .json)
     printf 'last run:    %s — %s\n' "$stamp" \
       "$(jq -r '"\(.subtype // "?") · \((.result // "") | tostring | gsub("\\s+"; " ") | .[0:120])"' "$last" 2> /dev/null || echo unreadable)"
     t=$(run_transcript "$stamp" || true)
-    [[ -n "$t" ]] && printf '             %s\n' "$(run_agents "$t")"
+    # An if, not `&&`: as the function's last command a false test would make
+    # status exit 1 whenever the transcript is gone.
+    if [[ -n "$t" ]]; then printf '             %s\n' "$(run_agents "$t")"; fi
   fi
 }
 
@@ -1147,7 +1153,7 @@ dispatch_watch() {
       sleep 2
     done
   else
-    stamp=$(find "$STATE/runs" -type f 2> /dev/null | sort | tail -1)
+    stamp=$(find "$STATE/runs" -type f 2> /dev/null | sort | tail -1 || true)
     stamp=${stamp##*/}
     [[ -n "$stamp" ]] || die "no dispatch runs yet"
     t=$(run_transcript "$stamp") || die "no transcript found for run $stamp"
