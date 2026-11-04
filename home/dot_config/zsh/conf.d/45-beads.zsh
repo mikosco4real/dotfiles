@@ -9,6 +9,23 @@
 
 (( $+commands[bd] )) || return 0
 
+# This file is a live symlink, so an update lands here at once, but a shell that
+# was already open keeps its old did/todo until it re-sources the file. Both check
+# first and pick up a newer version themselves: an old `did <id>` once logged a
+# new bead titled with the ID instead of closing that bead. typeset -g because
+# _hub_fresh sources this file from inside a function.
+typeset -g _hub_zsh=${${(%):-%x}:A}
+zmodload -F zsh/stat b:zstat 2> /dev/null
+typeset -g _hub_zsh_mtime=$(zstat +mtime -- "$_hub_zsh" 2> /dev/null)
+_hub_fresh() {
+  local m
+  m=$(zstat +mtime -- "$_hub_zsh" 2> /dev/null) || return 0
+  [[ "$m" == "$_hub_zsh_mtime" ]] && return 0
+  source "$_hub_zsh"
+  _hub_zsh_mtime=$m # even if the new file failed to set it: never loop
+  return 1
+}
+
 # owner/name, lower-cased, from any of: owner/name, https://host/owner/name(.git),
 # git@host:owner/name(.git). Fails on anything without both parts.
 _hub_norm_slug() {
@@ -59,6 +76,7 @@ _hub_repo_opt() {
 # (`hub report`) sees it. Tagged repo:<owner>/<name> from -r, or else from the
 # git repo you're in; outside a repo and without -r it gets no repo label.
 did() {
+  _hub_fresh || { did "$@"; return; }
   local _hub_slug _hub_n labels=manual slug id
   _hub_repo_opt "$@" || return
   shift $_hub_n
@@ -93,6 +111,7 @@ did() {
 # todo                                       — list your open to-dos
 # Labelled `human`, which the dispatcher never picks up. Repo as for did.
 todo() {
+  _hub_fresh || { todo "$@"; return; }
   local _hub_slug _hub_n labels=human slug id
   _hub_repo_opt "$@" || return
   shift $_hub_n
