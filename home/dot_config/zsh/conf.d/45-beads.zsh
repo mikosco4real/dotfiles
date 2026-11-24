@@ -125,5 +125,16 @@ todo() {
   print -r -- "added $id${slug:+ ($slug)}"
 }
 
-# Homebrew/AUR install bd's own completion; give bdh the same one.
-(( $+functions[compdef] )) && compdef bdh=bd
+# Give bdh the same completion as bd. Homebrew installs bd's completion, but
+# Arch's beads-bin does not, and `compdef bdh=bd` fails when bd has none. In that
+# case generate it once into the cache (regenerating when bd is upgraded), since
+# running `bd completion zsh` on every shell start costs about 0.2s.
+if (( $+functions[compdef] && $+commands[bd] )); then
+  if (( ! $+_comps[bd] )); then
+    _bd_comp="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/_bd"
+    [[ -s $_bd_comp && $_bd_comp -nt $commands[bd] ]] || bd completion zsh >| $_bd_comp
+    source $_bd_comp
+    unset _bd_comp
+  fi
+  compdef bdh=bd
+fi
