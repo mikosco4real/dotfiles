@@ -18,6 +18,7 @@ Nothing in this repo is machine-specific. Identity and secrets are supplied at
 | **tmux** | `~/.config/tmux/` | Truecolor + undercurl, OSC 52 clipboard, auto session layout, catppuccin via tpm. |
 | **Ghostty** | `~/.config/ghostty/` | Primary terminal. Shared config plus per-OS overrides. |
 | **kitty** | `~/.config/kitty/` | Kept as a working fallback. |
+| **Rex** | `~/.config/rex/init.lua` | Terminal multiplexer. Keybindings migrated from tmux, Ghostty and kitty. |
 | **starship** | `~/.config/starship.toml` | Prompt. Catppuccin Mocha palette. |
 | **Zed** | `~/.config/zed/` | Secondary editor, vim mode on. |
 | **git** | `~/.gitconfig`, `~/.config/git/` | Templated identity; work vs personal chosen by **remote URL**. |
