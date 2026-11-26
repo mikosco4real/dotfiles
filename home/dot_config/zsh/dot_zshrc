@@ -26,11 +26,3 @@ for _frag in "$ZDOTDIR"/conf.d/*.zsh(N); do
   source "$_frag"
 done
 unset _frag
-
-# pnpm
-export PNPM_HOME="/Users/mokolo/.local/share/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
-esac
-# pnpm end
