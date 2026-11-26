@@ -30,11 +30,18 @@ Name a project the way the team knows it, from the item's `[owner/repo]`:
 |---|---|
 | ai_backend_rs, ai_frontend_vue | Webtize AI |
 | office_addin_ts | RAG Excel add-in |
-| pos_proxy_server_fe, pos_proxy_server_be | POS app |
+| pos_proxy_server_fe, pos_proxy_server_be | POS proxy |
 | anything else | the repo name |
 | (no repo) | leave the brackets out |
 
 The repo is a hint: an item clearly about another project goes under that one.
+
+## Focus
+
+Until 18 Dec 2026 (compare it with the date in the input's heading), my focus
+is foreverpos. Write bullets only for foreverpos and POS proxy items, and leave
+every other project out, Blocked line included. If that leaves nothing, use the
+empty-input line below. After that date, ignore this section.
 
 ## Rules
 

@@ -39,7 +39,7 @@ Name a project the way the team knows it, from the item's `[owner/repo]`:
 |---|---|
 | ai_backend_rs, ai_frontend_vue | Webtize AI |
 | office_addin_ts | RAG Excel add-in |
-| pos_proxy_server_fe, pos_proxy_server_be | POS app |
+| pos_proxy_server_fe, pos_proxy_server_be | POS proxy |
 | anything else | the repo name |
 | (no repo) | Other |
 
