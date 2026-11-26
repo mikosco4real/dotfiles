@@ -1,0 +1,60 @@
+{{ if and (eq .chezmoi.os "darwin") .gui -}}
+#!/usr/bin/env bash
+# Apply Rex's app settings: theme, font, Option key and layout.
+#
+# Rex keeps these in its macOS preferences (com.superlogical.rex), not in
+# init.lua: in this version rex.set only covers resume rules. Only preference
+# keys are written. Window frames, update state, the last focused session and
+# server routes stay per-machine. run_onchange_, keyed on this script and the
+# theme file:
+#
+# custom-themes.json: {{ include "dot_config/rex/custom-themes.json" | sha256sum }}
+#
+# To save new choices made in Rex's Settings window, update the values below
+# (`defaults read com.superlogical.rex <key>`) and regenerate custom-themes.json
+# from Workspace.customThemes. Rex reads the values when it starts.
+#
+# Renders empty (and so never runs) unless this is a macOS desktop machine.
+set -euo pipefail
+
+log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+
+d=com.superlogical.rex
+themes={{ joinPath .chezmoi.sourceDir "dot_config/rex/custom-themes.json" | quote }}
+
+# Imported themes: Catppuccin Mocha, from Ghostty's theme file. Rex stores the
+# list as compact JSON bytes, and darkThemeID below names an id inside it. The
+# file's final newline (required by the repo's lint) is dropped on the way in.
+defaults write "$d" Workspace.customThemes -data "$(tr -d '\n' < "$themes" | xxd -p | tr -d '\n')"
+
+# Themes > Dark Mode and Light Mode; Interface > Appearance.
+defaults write "$d" Workspace.appearance -string dark
+defaults write "$d" Workspace.darkThemeID -string custom-500C9D3D-6928-4E17-8742-E3EFE5A5B62C
+defaults write "$d" Workspace.lightThemeID -string merino-light
+defaults write "$d" Workspace.interfaceStyle -string useTheme
+
+# Terminal > Typography and Keyboard.
+defaults write "$d" Workspace.terminalFontName -string "VictorMono Nerd Font Mono"
+defaults write "$d" Workspace.terminalCellHeightPercent -float 5
+defaults write "$d" Workspace.terminalOptionKeyBehavior -string actsAsAlt
+
+# Interface: tabs, toolbar, sidebar and inactive panes.
+defaults write "$d" Workspace.tabStyle -string horizontal
+defaults write "$d" Workspace.tabBarEdge -string bottom
+defaults write "$d" Workspace.toolbarBehavior -string alwaysShow
+defaults write "$d" Workspace.sidebarPosition -string left
+defaults write "$d" Workspace.tabIconCount -int 3
+defaults write "$d" Workspace.tabIconTintMode -string off
+defaults write "$d" Workspace.inactivePaneFadeMode -string both
+defaults write "$d" Workspace.usesStandardInactiveWindowPaneStyles -bool true
+defaults write "$d" Workspace.activityGrouping -string priority
+
+# Agents don't rename Rex sessions.
+defaults write "$d" rex.agents.names-sessions -bool false
+
+if pgrep -xq Rex; then
+  log "Rex settings saved; restart Rex if they differ from what it shows"
+else
+  log "Rex settings saved"
+fi
+{{ end -}}
